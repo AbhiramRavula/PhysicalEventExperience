@@ -1,0 +1,1470 @@
+StadiumIQ
+Physical Event Experience Platform
+Complete Engineering PRD  ·  v2.0  ·  All Phases
+
+Version
+2.0 (Complete)
+Date
+April 2025
+Audience
+Engineering
+Scope
+All Phases
+Platforms
+iOS·Android·Web·Kiosk
+Status
+Draft — Review
+
+📋  Document Guide: This is the single complete engineering reference for StadiumIQ. Sections 1–11 cover product requirements and architecture. Sections 12–13 cover UI wireframe specifications. Sections 14–16 cover build execution (sprint plan, test strategy, mock data + BLE simulator). Section 17 defines prototype done criteria.
+
+
+1. Executive Summary
+StadiumIQ is a unified, mobile-first platform designed to transform the attendee experience at large-scale sporting venues — football/soccer stadiums, cricket grounds, and multi-sport arenas — supporting up to 80,000 concurrent attendees per event. The platform combines smart wayfinding, real-time crowd intelligence, virtual queue management, food and merchandise pre-ordering, live event notifications, and an operator command dashboard into one coherent ecosystem.
+
+🎯  Engineering Mandate
+Build a fault-tolerant, horizontally scalable platform that delivers sub-second wayfinding updates, <30s emergency alert propagation, and in-seat F&B ordering with 99.9% uptime during live events — across iOS, Android, Web PWA, and In-venue Kiosks.
+
+🚧  Problem Statement
+Large-scale events suffer from congestion at gates, concessions, restrooms, and parking. Bottlenecks degrade fan experience, reduce revenue, and create safety risks. Operators lack real-time crowd visibility and dynamic communication tools.
+
+2. Document Metadata
+
+Product Name
+StadiumIQ — Physical Event Experience Platform
+Document Type
+Complete Engineering PRD (v2.0 — all sections merged)
+Version
+2.0
+Date
+April 2025
+Primary Audience
+Engineering Team (Backend, Mobile, Frontend, DevOps, QA)
+Venues Covered
+Football/Soccer Stadiums, Cricket Grounds, Multi-sport Arenas
+Attendee Platforms
+iOS App, Android App, Web PWA, In-venue Kiosks
+Operator Platform
+Web SPA (React + WebSocket)
+Backend Approach
+Stack-agnostic microservices; REST + WebSocket + Kafka
+Hardware Scope
+BLE Beacons, Wi-Fi Triangulation, IoT Sensors, CCTV CV (Phase 3)
+Phases
+Phase 1 (MVP), Phase 2 (Full), Phase 3 (AI/Intelligence)
+
+3. Goals & Success Metrics
+3.1 Primary Goals
+Reduce average gate entry wait time from 12–20 minutes to under 5 minutes.
+Cut concession queue wait times by 60% through virtual pre-ordering.
+Achieve real-time crowd density monitoring across 95%+ of venue zones.
+Deliver critical safety alerts to 100% of attendees within 30 seconds.
+Increase per-event CSAT from industry average 3.4/5 to 4.2/5.
+Drive a 20–35% uplift in food & merchandise revenue through in-seat ordering.
+
+3.2 KPI Table
+
+KPI
+Baseline
+Target (12 mo.)
+Measurement
+Gate entry wait time
+12–20 min
+< 5 min
+Sensor + App timestamps
+Concession queue time
+8–15 min
+< 3 min (pre-order)
+Order fulfilment logs
+Crowd alert latency
+N/A (manual)
+< 30 seconds
+Push notification logs
+App adoption rate
+0%
+> 55% of attendees
+App download analytics
+In-seat order revenue uplift
+Baseline
++25%
+POS integration data
+Fan CSAT Score
+3.4 / 5
+4.2 / 5
+Post-event survey
+Emergency response time
+4–8 min
+< 2 min
+Incident logs
+
+
+4. User Personas
+
+🎉  The Casual Fan
+First-time or occasional attendee
+Pain: Gets lost, spends half the match queuing for food, misses key moments.
+Goal: Simple navigation, order-ahead food, timely alerts.
+🏟️  Season Ticket Holder
+Loyal, high-frequency attendee
+Pain: Frustrated by crowds he knows well; wants VIP treatment and smart routing.
+Goal: Express lanes, personalised alerts, saved preferences.
+🛡️  Venue Operator
+Security / event management staff
+Pain: No live crowd visibility, slow emergency comms, no staff dispatch tools.
+Goal: Real-time dashboard, instant broadcast, staff dispatch.
+
+5. System Architecture
+5.1 Architecture Tiers
+The system is divided into four tiers: Hardware Sensing, Edge Processing, Cloud Backend, and Client Applications.
+
+Tier
+Components
+Responsibilities
+Tier 1 — Hardware
+BLE Beacons, IoT Sensors, CCTV AI nodes, Wi-Fi APs
+Positional data capture, density counting, raw telemetry
+Tier 2 — Edge
+On-premise edge servers (per zone cluster)
+Low-latency aggregation, offline-safe buffer, BLE packet dedup
+Tier 3 — Cloud
+Microservices on Kubernetes (AWS EKS preferred)
+Business logic, ML inference, notification routing, OMS
+Tier 4 — Clients
+iOS, Android, Web PWA, Kiosk, Operator Dashboard
+User-facing UIs consuming REST + WebSocket APIs
+
+5.2 Core Microservices
+Service
+Responsibility
+Key Dependencies
+SLA
+crowd-flow-svc
+Ingest beacon/sensor telemetry; emit zone density scores
+Kafka, Redis, TimescaleDB
+p99 < 500ms
+wayfinding-svc
+Graph routing engine; serve personalised paths
+crowd-flow-svc, PostGIS
+p99 < 800ms
+notification-svc
+Fan-out push alerts (FCM/APNs); targeted + broadcast
+Kafka, Redis pub/sub
+< 30s at 80k
+order-mgmt-svc
+Virtual queues, F&B/merch orders, POS integration
+PostgreSQL, Stripe/Razorpay
+p99 < 1s
+venue-map-svc
+Serve indoor map tiles; POI status updates
+PostGIS, S3 (tile cache)
+p99 < 300ms
+identity-svc
+Auth (JWT), ticket validation, attendee profile
+PostgreSQL, ticketing API
+p99 < 200ms
+operator-svc
+Dashboard data feed; staff dispatch; incident log
+WebSocket, PostgreSQL
+p99 < 400ms
+analytics-svc
+Event metrics aggregation; ML feature pipeline
+Kafka, ClickHouse
+Async near-RT
+
+5.3 Communication Patterns
+REST over HTTPS — all request/response client-to-backend calls.
+WebSocket (Socket.io / native WS) — live heatmap, operator dashboard, order status updates.
+Kafka topics — internal async bus between microservices (crowd telemetry, order events, alert triggers).
+Server-Sent Events (SSE) — fallback for clients that cannot maintain WebSocket connections.
+FCM / APNs — push notifications for mobile; Web Push for PWA browsers.
+
+
+6. Core Data Models
+6.1 Venue & Zone Schema
+CREATE TABLE venues (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name         VARCHAR(200) NOT NULL,
+  city         VARCHAR(100),
+  country_code CHAR(2),
+  capacity     INTEGER,
+  geom         GEOMETRY(Polygon, 4326),
+  created_at   TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE zones (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  venue_id     UUID REFERENCES venues(id),
+  name         VARCHAR(100) NOT NULL,
+  type         VARCHAR(50),   -- gate|concourse|stand|restroom|concession|exit
+  floor        SMALLINT DEFAULT 0,
+  capacity     INTEGER,
+  geom         GEOMETRY(Polygon, 4326),
+  centroid     GEOMETRY(Point, 4326)
+);
+
+CREATE TABLE beacons (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  zone_id      UUID REFERENCES zones(id),
+  hardware_id  VARCHAR(64) UNIQUE NOT NULL,
+  location     GEOMETRY(Point, 4326),
+  floor        SMALLINT,
+  battery_pct  SMALLINT,
+  last_seen    TIMESTAMPTZ
+);
+
+6.2 Crowd Telemetry (TimescaleDB Hypertable)
+CREATE TABLE crowd_telemetry (
+  time         TIMESTAMPTZ NOT NULL,
+  zone_id      UUID NOT NULL,
+  device_count INTEGER,       -- aggregate only; no individual IDs
+  density_pct  NUMERIC(5,2),  -- 0.00 – 100.00
+  flow_dir     VARCHAR(16),   -- inbound|outbound|static
+  source       VARCHAR(20)    -- beacon|sensor|cv_camera|wifi
+);
+SELECT create_hypertable('crowd_telemetry','time');
+CREATE INDEX ON crowd_telemetry (zone_id, time DESC);
+
+6.3 Orders Schema
+CREATE TABLE orders (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attendee_id     UUID NOT NULL,
+  event_id        UUID NOT NULL,
+  venue_id        UUID REFERENCES venues(id),
+  status          VARCHAR(20) DEFAULT 'pending',
+                  -- pending|confirmed|preparing|ready|collected|cancelled
+  order_type      VARCHAR(20),  -- food|beverage|merchandise
+  pickup_zone_id  UUID REFERENCES zones(id),
+  total_amount    NUMERIC(10,2),
+  currency        CHAR(3) DEFAULT 'INR',
+  payment_ref     VARCHAR(100),
+  created_at      TIMESTAMPTZ DEFAULT now(),
+  ready_at        TIMESTAMPTZ,
+  collected_at    TIMESTAMPTZ
+);
+
+CREATE TABLE order_items (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id    UUID REFERENCES orders(id) ON DELETE CASCADE,
+  product_id  UUID NOT NULL,
+  quantity    SMALLINT NOT NULL,
+  unit_price  NUMERIC(10,2)
+);
+
+
+7. API Specification
+7.1 Authentication
+All protected endpoints require Bearer JWT (RS256, 8hr TTL) in the Authorization header. Tokens issued by identity-svc on ticket scan / OAuth login. Refresh via POST /auth/refresh.
+
+POST  /auth/login          -- { barcode, device_id } → { access_token, refresh_token }
+POST  /auth/refresh        -- { refresh_token } → { access_token }
+GET   /auth/me             -- attendee profile from token claims
+
+7.2 Wayfinding & Map
+Endpoint
+Method
+Auth
+Description
+/venues/{vid}/map
+GET
+Public
+Full venue GeoJSON: zones, POIs, floors
+/venues/{vid}/zones/{zid}/density
+GET
+Bearer
+Current density_pct + flow direction
+/venues/{vid}/heatmap
+GET (SSE)
+Bearer
+SSE stream; density snapshot every 10s
+/venues/{vid}/route
+POST
+Bearer
+Body: {from_zone,to_zone,accessibility}; returns GeoJSON path
+/venues/{vid}/zones
+GET
+Bearer
+All zones with live status (open/busy/closed)
+
+7.3 Queue & Orders
+Endpoint
+Method
+Auth
+Description
+/events/{eid}/queue/join
+POST
+Bearer
+Join virtual gate queue; returns {slot_id, window_start, window_end}
+/events/{eid}/queue/status
+GET
+Bearer
+Position and ETA for attendee's active slot
+/menu/{venue_id}
+GET
+Public
+Product catalogue with availability flags
+/orders
+POST
+Bearer
+Create F&B/merch order; returns order_id
+/orders/{oid}
+GET
+Bearer
+Order status; subscribe WS for live updates
+/orders/{oid}/cancel
+POST
+Bearer
+Cancel order if status == pending
+
+7.4 Notifications
+Endpoint
+Method
+Auth
+Description
+/notifications/register
+POST
+Bearer
+Register FCM/APNs device token
+/notifications/broadcast
+POST
+Operator JWT
+Alert all attendees in event or zone
+/notifications/history
+GET
+Bearer
+Last 50 notifications for attendee
+
+7.5 WebSocket Events — Operator Dashboard
+// Connect: ws://api.stadiumiq.io/operator?event_id=<eid>&token=<jwt>
+
+// Server → Client
+{ "event":"zone_density_update", "data":{ "zone_id":"...", "density_pct":72.4, "flow_dir":"inbound", "ts":"..." } }
+{ "event":"alert_triggered",     "data":{ "alert_id":"...", "severity":"critical", "zones":["..."], "message":"..." } }
+{ "event":"order_volume",        "data":{ "zone_id":"...", "pending_orders":34, "avg_wait_min":4.2 } }
+
+// Client → Server
+{ "event":"dispatch_staff",  "data":{ "zone_id":"...", "staff_count":3, "reason":"crowd_surge" } }
+{ "event":"send_zone_alert", "data":{ "zones":["..."], "message":"...", "severity":"warning" } }
+
+
+8. Hardware & Infrastructure
+8.1 BLE Beacon Deployment Spec
+Parameter
+Value
+Notes
+Beacon Protocol
+Eddystone-URL + iBeacon
+Dual-mode for iOS + Android compatibility
+Tx Power
+–12 dBm (adjustable)
+Typical 5–8m radius; tune per zone size
+Beacon Density
+1 per 25–30 m²
+Higher density at gates + restrooms
+Positioning Accuracy
+2–3 m (trilateration)
+Degrade to zone-level if <3 beacons visible
+Battery Life
+18–24 months
+CR2477; remote monitoring via MQTT heartbeat
+Scan Interval (client)
+300ms foreground / 1000ms background
+Remote-config tunable
+
+8.2 Cloud Infrastructure (AWS Reference)
+Compute: EKS (Kubernetes 1.29+); node groups auto-scaled on CPU + custom Kafka lag metric.
+Database: RDS Aurora PostgreSQL 15 (multi-AZ) + TimescaleDB on EC2; ElastiCache Redis for hot-path caching.
+Messaging: MSK (Managed Kafka) — topics: crowd.telemetry, order.events, alert.commands, beacon.heartbeat.
+Storage: S3 for venue map tiles + media; CloudFront CDN for tile distribution.
+Edge: Wavelength Zones or on-premise k3s nodes for <10ms intra-venue latency.
+Observability: OpenTelemetry → Grafana stack (Tempo, Loki, Prometheus); PagerDuty alerting.
+
+8.3 Capacity Planning
+Component
+Peak Load
+Provisioned
+Scale Trigger
+crowd-flow-svc
+50k events/sec
+12 pods × 4 vCPU
+Kafka lag > 5k msgs
+notification-svc
+80k push/30s
+8 pods × 2 vCPU
+Queue depth > 10k
+order-mgmt-svc
+2,000 req/sec
+6 pods × 2 vCPU
+CPU > 65% for 2 min
+WS connections (operator)
+500 concurrent
+2 pods (sticky)
+Connections > 400
+Redis (heatmap cache)
+800k ops/sec
+r7g.xlarge × 3 shards
+Memory > 70%
+
+
+9. Engineering Feature Requirements
+ID
+Feature
+Engineering Notes
+Services
+Priority
+Phase
+F-01
+Smart Wayfinding
+Dynamic Dijkstra on PostGIS zone graph; recalculates every 15s if zone density changes >10%. Offline fallback: last cached path in IndexedDB/CoreData.
+wayfinding-svc, venue-map-svc, crowd-flow-svc
+High
+P1
+F-02
+Live Heatmap
+TimescaleDB continuous aggregate refreshed every 10s. Tiers: green <40%, amber 40–70%, red >70%. SSE stream to clients.
+crowd-flow-svc, analytics-svc
+High
+P1
+F-03
+Virtual Gate Queue
+Token bucket per gate; 5-min non-overlapping windows. Slot claimed via Redis INCR atomically. Gate scanner validates JWT + slot_id + HMAC.
+order-mgmt-svc, identity-svc
+High
+P1
+F-04
+F&B Pre-order
+Order → Kafka → kitchen display WebSocket. Payment via Stripe/Razorpay webhook before kitchen notified. Order status via WS stream.
+order-mgmt-svc, notification-svc
+High
+P1
+F-05
+Interactive Venue Map
+MVT (Mapbox Vector Tiles) from PostGIS via pg_tileserv. Indoor layers by floor. Kiosk uses local CDN mirror of tiles.
+venue-map-svc
+High
+P1
+F-06
+Push Notifications
+Wraps FCM + APNs + Web Push. Broadcast: Kafka fan-out. Targeted: attendee segment index in Redis. Dedup key TTL 60s.
+notification-svc
+High
+P1
+F-09
+Operator Dashboard
+React SPA on operator-svc WebSocket. Staff dispatch logged to Kafka for audit. RBAC: viewer|coordinator|security|kitchen.
+operator-svc, all
+High
+P1
+F-10
+Accessibility Mode
+Route graph includes accessibility_weight on edges (lifts/ramps). Returned path flags accessible_only. WCAG 2.1 AA via axe-core CI gate.
+wayfinding-svc
+High
+P2
+F-07
+Merchandise Order
+Same pipeline as F-04; fulfilment_type: pickup|seat_delivery. Seat delivery gated on premium ticket tier via identity-svc.
+order-mgmt-svc
+Med
+P2
+F-13
+Multi-language
+react-intl + ICU message format. Keys in S3; hot-reload without app update. Safety alerts always sent in device locale.
+notification-svc, all clients
+Med
+P2
+F-11
+AI Crowd Prediction
+LSTM trained on per-zone historical density (TimescaleDB). Inference via ONNX Runtime in analytics-svc. Proactive re-route if predicted density >75% in 10 min.
+analytics-svc, wayfinding-svc
+Med
+P3
+F-15
+Wearable Integration
+WatchKit/Wear OS reads shared app group. Haptic turn cues via WKHapticType. Order status via complication.
+iOS/Android apps
+Low
+P3
+
+
+10. Non-Functional Requirements
+Category
+Requirement
+Acceptance Criteria
+Performance
+API p99 latency
+wayfinding <800ms; order <1s; map tile <300ms; auth <200ms
+Performance
+App cold start
+< 3s to interactive on React Native; < 4s on PWA (Lighthouse TTI)
+Scalability
+Concurrent sessions
+80,000 simultaneous WS + REST clients without degradation
+Scalability
+Kafka ingestion
+50k telemetry events/sec sustained; 100k burst (2 min)
+Availability
+Event-time uptime
+99.9% per event; auto-failover < 30s (multi-AZ RDS + Redis Sentinel)
+Durability
+Orders + telemetry
+RTO: 1hr; RPO: 5 min; WAL archived to S3 every 5 min
+Security
+Transport
+TLS 1.3; HSTS + preload; certificate pinning in mobile apps
+Security
+Payment
+PCI-DSS Level 1; card data never touches StadiumIQ servers (tokenised)
+Privacy
+Location data
+Aggregate-only; no attendee UUID linked to position history; GDPR Art. 25
+Accessibility
+WCAG compliance
+WCAG 2.1 AA; axe-core CI gate blocks merge on critical violations
+Offline Resilience
+Map + route offline
+Static map + last route cached in IndexedDB / SQLite; graceful banner
+Battery (mobile)
+BLE scan overhead
+≤ 5% additional battery per 2-hr session on iPhone 12 / Pixel 6
+Observability
+Tracing
+100% of cross-service requests traced via OpenTelemetry in Grafana Tempo
+Deployment
+Release cadence
+Trunk-based; canary via Argo Rollouts; rollback < 5 min
+
+
+11. Roadmap, Risks & Dependencies
+11.1 Phased Delivery Roadmap
+
+Phase 1 — MVP (M1–4)
+Phase 2 — Full (M5–10)
+Phase 3 — AI Layer (M11–18)
+Timeline
+Months 1–4
+Months 5–10
+Months 11–18
+Core Focus
+Foundation + fan core flow
+Commerce, accessibility, reach
+AI/ML, loyalty, integrations
+Features
+F-01,02,03,04,05,06,09
+F-07,08,10,13
+F-11,12,14,15
+Backend
+8 microservices; Kafka+TimescaleDB
+POS adapters; i18n pipeline
+ML inference; public API ecosystem
+Infra
+EKS, MSK, Aurora, BLE stack
+IoT floor sensors; edge k3s
+ML cluster; ClickHouse analytics
+Team (est.)
+8 BE + 4 Mobile + 2 DevOps + 2 QA
++ 4 BE + 2 Mobile + 1 ML Eng
++ 3 ML/Data + 2 Integrations
+Success Gate
+3 pilot venues; p99 SLA met
+20% revenue uplift; WCAG AA
+ML accuracy >85%
+
+11.2 Key Risks & Mitigations
+Risk
+Likelihood
+Impact
+Mitigation
+BLE signal multipath in metal-heavy stadiums
+Medium
+High
+Pre-deployment RF survey; mesh topology; Kalman filter on RSSI; zone-level fallback
+Kafka consumer lag under 50k event/s burst
+Medium
+High
+Partition scaling; consumer group tuning; dead-letter queue with replay
+Network congestion on venue Wi-Fi during peak entry
+High
+High
+Edge node caching; offline-first app; progressive tile loading
+Legacy POS/ticketing API incompatibility
+High
+Medium
+Middleware adapter layer; OpenAPI contract tests; parallel operation mode
+GDPR/DPDP data residency non-compliance
+Low
+High
+Region-local AWS deployments; data classification tags; no cross-region telemetry replication
+
+11.3 External Dependencies
+Dependency
+Purpose
+Integration Type
+Owner
+Ticketmaster / BookMyShow
+Ticket validation, attendee identity
+OAuth2 + REST API
+identity-svc
+Stripe / Razorpay
+Payment processing, refunds
+Webhook + REST SDK
+order-mgmt-svc
+FCM (Google)
+Android + Web push
+FCM v1 HTTP API
+notification-svc
+APNs (Apple)
+iOS push
+HTTP/2 APNs API + p8 key
+notification-svc
+Mapbox / pg_tileserv
+Indoor map tile rendering
+MVT over HTTPS
+venue-map-svc
+BLE Beacon Vendor
+Hardware + management cloud
+MQTT heartbeat + REST mgmt
+DevOps / Hardware
+POS System (per venue)
+Kitchen display, inventory
+Custom REST adapter
+order-mgmt-svc
+AWS (EKS, MSK, Aurora, S3)
+Core cloud infrastructure
+Terraform IaC
+Platform / DevOps
+
+
+12. UI Wireframe Specifications — Attendee Flows
+These are Figma-style text-based wireframe specifications. Each screen is described in terms of layout regions, component properties, states, interactions, and API bindings — sufficient for a designer to produce high-fidelity mockups and for a developer to implement without visual assets.
+
+📐  Spec Format
+Each screen uses: [REGION] blocks for layout areas, component properties (type / content / state / action), interaction notes, and API bindings. All dimensions are relative unless marked px.
+
+Screen 1 — Ticket Login
+Purpose: First touch-point. Attendee authenticates via ticket barcode (camera scan or manual entry). On success, JWT stored in secure storage, redirect to Venue Map (Screen 2). Kiosk auto-enters Guest Mode.
+
+
+[ STATUS BAR ]
+Height: 44px
+Background: translucent dark overlay on splash
+Content: time (left), battery + signal (right)
+
+[ HERO / SPLASH AREA ]
+Height: 35% screen
+Background: vertical gradient — brand-blue-dark (top) to brand-blue (bottom)
+Content: App logo centred, 48px bold; tagline below, 13px regular, 60% opacity
+State: static; no interaction
+
+[ AUTH CARD (floating, bottom 55% of screen) ]
+Shape: rounded rect (16px radius), frosted glass — white 10% fill + blur, border white 18% @ 1px
+Padding: 20px all sides
+Component 1 — Section label: 'Scan your ticket', 11px semibold uppercase, 75% white
+Component 2 — Camera scan zone: dashed border (white 35%, 1.5px, rounded 10px), height 90px, centred camera icon 24px + label 'Tap to open camera' 11px. Tap → requestCameraPermission → barcode scanner overlay. On decode → POST /auth/login
+Component 3 — Divider: 'or enter manually', horizontal rules either side, 10px, 45% opacity
+Component 4 — Text input: full width, 13px, placeholder 'Booking ref: TKT-XXXX-XXXX', white 90% bg, 8px radius. Return key triggers same POST /auth/login
+Component 5 — Primary CTA button: full width, 44px height, white bg, brand-blue text, 'Enter Venue →', 13px semibold, 8px radius
+↳ Haptic feedback (medium impact) on successful camera decode.
+
+[ GUEST MODE LINK ]
+Alignment: centred, below card, 16px margin-top
+Text: 'No ticket? Browse as guest', 11px. 'Browse as guest' in link-blue
+Tap → set guestMode=true in app state → navigate to Screen 2 (map-only, no queue/order features): 
+
+[ ERROR STATES ]
+Invalid barcode: red inline error below input, 'Ticket not recognised. Please try again.', 11px
+Already checked in: bottom sheet modal — icon + 'This ticket has already been scanned', with 'Contact support' link
+Network error: toast banner top of screen, 'Connection lost — retrying…', amber bg, auto-dismiss 4s
+
+🔗  API Binding — Screen 1
+POST /auth/login  →  body: { barcode: string, device_id: string }  →  200: { access_token, refresh_token }  |  401: INVALID_TICKET  |  409: ALREADY_CHECKED_IN. Store tokens in iOS Keychain / Android Keystore.
+
+Screen 2 — Venue Map + Live Heatmap
+Purpose: Primary home screen post-login. Full-screen interactive indoor map with live density overlays. Bottom sheet anchors seat info and primary CTAs.
+
+
+[ TOP APP BAR ]
+Height: 56px
+Left: hamburger menu icon (32px touch target) + venue name (14px semibold)
+Right: notification bell icon (unread count badge, red, 14px) + avatar/initials icon
+Background: brand-blue, elevation 4dp
+
+[ MAP CANVAS (full bleed) ]
+Occupies: full screen behind bottom sheet; app bar overlays top
+Base: Mapbox Indoor SDK floor-plan layer or PostGIS MVT tiles rendered via Mapbox GL
+Interaction: pinch-zoom (min 14z, max 20z), pan, double-tap zoom
+Zone overlay: each zone polygon filled with density colour — green (#16A34A @ 35% opacity) / amber (#D97706 @ 35%) / red (#DC2626 @ 35%). Zone border: same colour, 1.5px, 60% opacity
+Zone tap: opens Zone Detail Bottom Sheet (see component below)
+My-location pin: blue filled circle 12px + white outer ring 20px + pulsing halo animation (2s ease). Updates every 1s (foreground BLE), 5s (background). Missing signal → show last-known greyed pin
+Compass: top-right of canvas, 28px circle, white bg, N indicator, taps to true-north
+Floor switcher: bottom-right of canvas, vertical pill with floor labels (G, 1, 2), active floor highlighted in brand-blue
+↳ Map refreshes density colours on each SSE event from GET /heatmap (cadence 10s). CSS transition on colour change: 600ms ease.
+
+[ DENSITY LEGEND (map overlay, bottom-left) ]
+Size: compact pill row, white 92% bg, 6px radius, 5px padding
+Items: coloured square (8px) + label — Low / Medium / High, 9px
+Visibility: always shown
+
+[ BOTTOM SHEET — SEAT INFO (default state, collapsed) ]
+Drag handle: 32px × 3px rounded pill, grey, centred top
+Collapsed height: ~110px. Expanded height: 40% of screen
+Row 1: seat string (bold, 13px) left + gate pill (brand-blue tint, 10px) right
+Row 2: zone description, floor (11px grey)
+Row 3: two buttons side-by-side — 'Navigate →' (primary, brand-blue) + 'Order Food' (secondary, grey outline), 36px height each, flex-equal
+↳ Navigate → triggers POST /route + transitions to Screen 3. Order Food → deep-links to Screen 5 with nearest concession pre-selected.
+
+[ ZONE DETAIL BOTTOM SHEET (tap on zone, slides up) ]
+Zone name: 16px semibold
+Density bar: horizontal fill bar, colour-coded, with % label
+Status chip: Open / Busy / Closed
+Estimated wait: 'Est. 4 min queue', 12px
+Accessible alternative: 'Nearest quiet alternative: Gate C (2 min)', link-blue, 11px
+Close: drag down or tap scrim
+
+[ BOTTOM NAV BAR ]
+Height: 56px + safe-area-inset
+Tabs (left-right): Map · Queue · Food · Alerts
+Active tab: brand-blue icon + label. Inactive: grey
+Notification dot on Alerts tab when unread count > 0: 
+
+🔗  API Bindings — Screen 2
+GET /venues/{vid}/map (on mount, cached 24h)  |  GET /venues/{vid}/heatmap (SSE, persists while screen active)  |  BLE trilateration every 1s → updates my-location pin.
+
+Screen 3 — Step-by-Step Wayfinding
+Purpose: Active navigation to seat or POI. Turn-by-turn instructions over a map with highlighted route. Triggered from Screen 2 Navigate CTA.
+
+
+[ NAV HEADER (replaces app bar) ]
+Background: brand-blue-dark, height 72px
+Row 1: 'Navigating to' label, 11px, 65% opacity white
+Row 2: destination string (e.g. 'Block D · Row 12 · Seat 34'), 15px bold white
+Row 3: meta pills — '⏱ ~4 min' + '📍 320m' + route-status chip (Clear / Busy — re-route in progress)
+Close (×) button: top-right, 32px touch target → dismiss navigation, return to Screen 2
+
+[ MAP WITH ROUTE (top half, ~45% screen) ]
+Route polyline: brand-blue, 3px, 80% opacity, rendered over zone polygons
+Route direction arrows: chevron markers every 40m along polyline
+User pin on route: blue circle, pulses
+Destination marker: green filled circle 16px + white ring
+Off-route detection: if user deviates >15m from polyline, trigger re-route silently (POST /route again). Show 'Re-routing…' chip for 1.5s
+
+[ STEP LIST (bottom half, scrollable) ]
+Current step (active): brand-blue-light background (LB), left border 3px brand-blue, icon (emoji/glyph) left, step text 13px bold, sub-description 11px grey
+Upcoming steps: grey-light background, same layout but 50% opacity text
+Completed steps: green-light background, green checkmark icon, strikethrough text 50% opacity
+Auto-scroll: active step always visible; scroll advances when BLE proximity confirms step completion
+Elevator/lift steps: distinct icon (🛗), note 'Accessible route — lift recommended'
+↳ Haptic feedback (light) when active step advances. Double haptic when destination reached.
+
+[ RE-ROUTE BANNER (conditional) ]
+Shown when density of a zone on current path exceeds 70%: 
+Amber banner below nav header: 'Zone ahead is getting busy — rerouting…'
+Disappears after new route is applied (1.5s): 
+If no alternate route: 'Route is busy — proceed with caution' (non-dismissable amber)
+
+[ OFFLINE BANNER (conditional) ]
+Shown when network is lost mid-navigation: 
+Blue-grey banner: 'Offline — using last known route. Navigation continues via BLE.'
+Steps still advance via BLE proximity triggers even offline: 
+
+🔗  API Bindings — Screen 3
+POST /venues/{vid}/route on mount + on re-route triggers.  |  SSE /heatmap monitors zones on path — triggers re-route if any zone >70%.  |  BLE proximity advances step index client-side (no API call per step).
+
+Screen 4 — Virtual Gate Queue
+Purpose: Attendee joins virtual gate queue, receives time-window slot, and gets a QR code when their window opens. Eliminates physical queuing.
+
+
+[ QUEUE JOIN STATE (before joining) ]
+Title: 'Gate Entry', 18px semibold
+Gate status cards: list of all gates (Gate A, B, C) with wait-time estimate chip. Green ≤5min, Amber 6–15min, Red >15min
+Primary CTA: 'Join Queue — Gate A' (suggested nearest gate, brand-blue button, full-width, 48px)
+Secondary: 'Choose a different gate', link style, 12px, below CTA
+
+[ SLOT CARD (after joining — waiting state) ]
+Card: rounded 12px, gradient fill brand-blue-light to white, border brand-blue 1px
+Header: gate name 24px bold brand-blue (left) + 'Waiting' status pill amber (right)
+Time row: three columns — 'Window opens' (time, 18px bold) | divider | 'Window closes' (time) | divider | 'Time until' (countdown, amber, 18px bold)
+Progress bar: amber fill, width = 1 − (time_remaining / total_wait_time), 6px height
+Sub-label: 'Queue position: ~280 people ahead', 10px grey
+↳ Countdown updates every second via client-side timer. Push notification (critical priority APNs/FCM) fires at T−3min from window_start.
+
+[ CROSS-SELL BANNER (during wait) ]
+Green-tinted card below slot card: food icon + 'Pre-order while you wait!' + 'Order Food' button (small, green)
+Taps to Screen 5 with seat pre-populated: 
+
+[ ALTERNATIVE GATES LIST ]
+Header: 'Other gates', 11px grey semibold uppercase
+List rows: gate name (13px) + wait-time chip (right-aligned)
+Tap row → confirm dialog 'Switch to Gate B?' → POST /queue/cancel + POST /queue/join new gate: 
+
+[ QR CODE STATE (window open, T=0) ]
+Full-screen transition: slot card animates → QR code fills screen
+QR code: 260px × 260px, centred, white bg, brand-blue border, generated from JWT + slot_id + HMAC
+Below QR: 'Valid until HH:MM:SS' countdown in red, 14px bold
+Sub-text: 'Scan at Gate A turnstile', 12px grey
+Above QR: animated green checkmark badge 'Your window is open!'
+↳ QR payload: base64(json({ slot_id, attendee_id, gate_id, window_end, hmac_sha256 })). Gate scanner POSTs to /queue/validate.
+
+[ EXPIRED STATE (post window_end) ]
+Amber card: 'Your window has closed'
+Options: 'Rejoin queue' (returns to join state) + 'Contact staff' (opens map → gate staff location)
+
+🔗  API Bindings — Screen 4
+POST /events/{eid}/queue/join  →  { slot_id, window_start, window_end }  |  GET /events/{eid}/queue/status (polling every 30s for position update)  |  QR generated client-side from slot data; validated server-side at gate scanner.
+
+Screen 5 — Food & Beverage Pre-Order
+Purpose: In-seat ordering from the full product catalogue. Browse → cart → checkout → status tracking. Primary revenue driver feature.
+
+
+[ APP BAR ]
+Left: back arrow + 'Food & Drinks', 15px semibold
+Right: cart icon + item count badge (red circle, white count, 13px bold)
+Elevation: 2dp with divider
+
+[ ESTIMATED WAIT BANNER (below app bar) ]
+Amber-tinted strip, full-width, 36px height: 
+Content: '⏱  Est. collection: 12 min at Food Court Level 1'
+Updates every 30s from order-mgmt-svc queue depth API: 
+
+[ CATEGORY TABS (horizontal scroll) ]
+Tab pills: All · 🍛 Food · 🥤 Drinks · 🍿 Snacks · 👕 Merch
+Active: brand-blue fill, white text; inactive: grey-light fill, dark text
+Scroll behaviour: momentum scroll, no pagination arrows
+
+[ PRODUCT LIST ]
+List row layout: product name (13px semibold) + description/price (11px grey) on left; qty-stepper on right
+Qty stepper: minus button (circle, brand-blue border) + count (14px bold) + plus button. Minus disabled at 0
+Sold-out item: name with 'Sold out' pill (red tint, 9px); entire row 50% opacity; stepper non-interactive
+Section headers for each category when 'All' tab active: 12px semibold grey uppercase, 8px top padding
+↳ Product list fetched from GET /menu/{venue_id}. Poll every 60s for availability changes. Auto-remove sold-out items from cart on checkout attempt with toast notification.
+
+[ CART SUMMARY BAR (sticky bottom, above nav) ]
+Height: 52px, white bg, top border 1px grey
+Left: '{n} items · ₹{total}'  (13px semibold)
+Right: 'Pick up: Food Ct. L1'  (11px grey)
+Full-width 'Proceed to Checkout →' primary button visible when cart count > 0. Hidden when cart empty.: 
+
+[ CHECKOUT FLOW (modal stack, 3 steps) ]
+Step 1 — Review: order summary list (item, qty, price), subtotal + 5% convenience fee + total. Edit quantities inline
+Step 2 — Pick-up zone: auto-selected = nearest open concession. Show map thumbnail with zone pinned. Option to change zone
+Step 3 — Payment: Razorpay (INR) / Stripe (intl) native SDK payment sheet. Test card shown in dev mode
+Order confirmation screen: green checkmark animation, order ID, 'Ready in ~12 min', collection zone map pin, 'Track Order' button
+
+[ ORDER TRACKING SCREEN (post-checkout) ]
+Status stepper: Pending → Confirmed → Preparing → Ready → Collected. Active step highlighted, completed steps checked in green
+Push notification on status=ready: 'Your order is ready! Go to Food Court Level 1 — Show QR to collect.'
+Collection QR: order_id + HMAC, shown full-screen on button tap
+
+🔗  API Bindings — Screen 5
+GET /menu/{venue_id}  |  POST /orders → { order_id }  |  WS subscription on /orders/{oid} for status stream  |  Razorpay SDK (INR) / Stripe SDK (intl) for payment.
+
+
+13. UI Wireframe Specifications — Operator Dashboard & Kiosk
+Screen 6 — Operator Command Dashboard (Web, 1280px+)
+Purpose: Real-time venue operations centre. Venue security, coordinators, and concession managers monitor crowd density, broadcast alerts, dispatch staff, and manage the order queue.
+
+
+[ OUTER LAYOUT — TWO-COLUMN GRID ]
+Left column: 220px fixed sidebar
+Right column: flex-fill main content area
+Height: 100vh; no page scroll — all overflow inside panels
+
+[ SIDEBAR ]
+Background: brand-blue-dark (#0F3460)
+Logo block: 'StadiumIQ Ops' (14px bold white) + venue name + event name (10px, 55% opacity)
+Nav items (top-down): 🗺️ Live Heatmap · 📣 Broadcast Alert · 🛡️ Staff Dispatch · 🍔 Kitchen Queue · 📋 Incident Log · 📊 Analytics
+Active item: white bg 14%, full-width, 6px radius, 12px text
+Bottom: live event block — event name (11px semibold), current status (10px muted), attendee count
+
+[ TOP BAR (main area) ]
+Left: current view title (14px semibold), event name tag
+Right: alert status chip (e.g. '2 zones critical', red tint, pulsing border) + 'Updated Ns ago' timestamp + '🚨 Send Alert' danger button (40px height)
+Height: 48px, white bg, bottom border 1px grey
+
+[ STAT ROW (below top bar, full-width, 5 boxes) ]
+Boxes: Attendees in venue · Critical zones (red tint when >0) · Active orders · Avg queue wait · Platform uptime
+Each box: grey-light bg, metric value 22px bold brand-blue, label 10px grey, 12px border radius
+Critical zones box switches to red-tint fill when value > 0: 
+
+[ MAIN CONTENT — TWO-PANEL GRID (below stat row) ]
+Left panel (60% width): Live Zone Map — same Mapbox Indoor SDK layer as mobile, zone polygons colour-coded by density, click zone → Zone Detail Side Panel slides in from right
+Right panel (40% width): split into Recent Incidents (top 45%) + Order Volume Chart (bottom 45%)
+
+[ ZONE DETAIL SIDE PANEL (slides in on zone click) ]
+Zone name (16px bold), type badge, floor: 
+Density gauge: circular arc chart, colour-coded, % in centre
+Device count, capacity, flow direction: 
+'Dispatch Staff' button: opens modal — steward count stepper + reason dropdown + confirm
+'Send Zone Alert' button: opens modal — message text area + severity selector (info/warning/critical) + confirm
+Close: × top-right or click map outside panel
+
+[ RECENT INCIDENTS PANEL ]
+List of last 20 incidents: colour dot (red/amber/green) + title + 'Nn min ago' + author
+Filter: All / Dispatches / Broadcasts / Auto-resolved
+'View Full Log' link → navigates to Incident Log view: 
+
+[ BROADCAST ALERT MODAL ]
+Trigger: 'Send Alert' button in top bar or zone detail panel
+Fields: Zone multi-select (all zones listed with density badges, pre-selected if triggered from zone detail) + Message textarea (max 200 chars, char count) + Severity radio (Info / Warning / Critical)
+Preview: estimated recipients count, updates as zones are selected
+'Send to {N} attendees' confirm button (full-width, colour matches severity): 
+Dismiss: × or ESC
+
+🔗  API Bindings — Screen 6
+WS /operator?event_id=&token= for all live data  |  POST /notifications/broadcast for alerts  |  WS dispatch_staff event for steward commands  |  GET /incidents for log view  |  Role check: coordinator+ required to send alerts.
+
+Screen 7 — In-Venue Kiosk
+Purpose: Walk-up self-service terminal at gate intersections, concourse entry points, and concession areas. Guest mode by default — no auth. Map + wayfinding only (food ordering on concession-zone kiosks only).
+
+
+[ KIOSK WRAPPER ]
+Browser: kiosk mode (fullscreen, no chrome). OS: locked-down Android or Windows kiosk shell
+Screen size: 24–27-inch landscape touchscreen (1920×1080 or 1280×800)
+Inactivity reset: 90s no-touch → return to home screen + clear session
+Update mechanism: Service Worker OTA from CDN nightly at 03:00 venue local time
+
+[ HOME SCREEN ]
+Large branding area top (logo + venue name), 20% height: 
+Two large CTA cards (50% width each, centred): 'Find My Seat 🗺️' + 'Find Nearby: Food · Restrooms · Exits 🔍'
+Bottom strip: event name + time + sponsor logo area
+Touch targets minimum 80px × 80px for all interactive elements: 
+
+[ SEAT FINDER FLOW ]
+Step 1 — Input: full keyboard (on-screen) + large input field 'Enter your seat (e.g. D-12-34)'. Alternative: QR scan using kiosk camera (optional, hardware dependent)
+Step 2 — Map: same venue map, zoomed to route from nearest kiosk beacon to entered seat. Route animated
+Step 3 — Instructions: large-text step list (min 18px), icon left, step text right. 'Print directions' button if printer hardware available
+Back button: large, top-left, 60px × 60px touch target
+
+[ POI FINDER FLOW ]
+Grid of POI type buttons: Restrooms · Food · Exit · First Aid · ATM — large icons 48px + labels 16px
+Select type → map shows all matching zones colour-coded by busyness + distance labels: 
+Tap zone → turn-by-turn instructions to that zone: 
+
+
+14. Sprint Plan — Phase 1 (8 Weeks)
+📌  Sprint Conventions
+2-week sprints. Sprint 0 = foundation (no user features). Sprints 1–3 = feature delivery. Each task has an Owner (team) and Definition of Done. All code merged to main via PR with ≥1 approval + green CI.
+
+Sprint 0 — Foundation (Week 1–2)
+🎯  Goal
+Repos, CI/CD, local dev environment, and service skeletons. Zero user-facing features — just the plumbing.
+
+#
+Task
+Owner
+Definition of Done
+S0-01
+Create mono-repo: /apps (mobile,web,kiosk,operator) /services (8 svcs) /infra /docs
+Tech Lead
+Repo live, CODEOWNERS set, branch strategy documented
+S0-02
+GitHub Actions CI: lint + unit test + Docker build on every PR
+DevOps
+Green pipeline on main; PR gate blocks on failure
+S0-03
+Docker Compose stack: Postgres+TimescaleDB+Redis+Kafka+Zookeeper
+DevOps
+docker compose up starts full local stack in <3 min
+S0-04
+Provision AWS dev via Terraform: EKS, RDS Aurora, ElastiCache, MSK
+DevOps
+kubectl get pods returns running in dev namespace
+S0-05
+Scaffold 8 microservice skeletons with GET /health → { status: ok }
+Backend Lead
+All 8 return 200 in local Docker Compose
+S0-06
+React Native (Expo) project + navigation skeleton + design tokens
+Mobile Lead
+App boots on iOS simulator + Android emulator
+S0-07
+Next.js PWA + Operator Dashboard projects initialised
+Frontend Lead
+npm run dev serves both on localhost
+S0-08
+Storybook for shared component library (Button, Card, Map, Alert)
+Frontend
+Storybook deployed to staging URL
+S0-09
+OpenTelemetry collector → Grafana stack (Tempo, Loki, Prometheus)
+DevOps
+Trace visible in Tempo for test HTTP request
+S0-10
+Seed script: 1 venue, 12 zones, 3 events, 20 products, 500 fake attendees
+Backend
+npm run seed populates dev DB idempotently
+
+Sprint 1 — Identity, Map & Wayfinding (Week 3–4)
+🎯  Goal
+Attendees can log in, see the live venue map with mocked density data, and get a routed path to their seat.
+
+#
+Task
+Owner
+Definition of Done
+S1-01
+POST /auth/login + GET /auth/me in identity-svc; JWT RS256
+BE: identity-svc
+Postman: valid JWT returned; invalid ticket → 401
+S1-02
+Integrate BookMyShow sandbox API for ticket barcode validation
+BE: identity-svc
+Real test barcode validates successfully in dev
+S1-03
+GET /venues/{vid}/map returning venue GeoJSON from PostGIS
+BE: venue-map-svc
+GeoJSON includes all 12 seed zones with geometry
+S1-04
+Mobile map screen: Mapbox SDK + zone overlays + seat marker on login
+Mobile
+Map renders; zones visible; seat marker shown
+S1-05
+POST /venues/{vid}/route — Dijkstra on zone graph
+BE: wayfinding-svc
+Route returned for all valid zone pairs; p99 <800ms
+S1-06
+Navigation UI in mobile: step list + map highlight
+Mobile
+'Navigate to seat' shows 3-step directions
+S1-07
+BLE simulator: Node.js script emitting fake RSSI events to Kafka
+BE / DevOps
+100 events/sec for 12 zones; visible in Kafka UI
+S1-08
+crowd-flow-svc: consume BLE events → density_pct per zone → TimescaleDB
+BE: crowd-flow-svc
+TimescaleDB rows appear at 10s intervals
+S1-09
+GET /venues/{vid}/heatmap SSE endpoint + colour-tier logic
+BE: crowd-flow-svc
+SSE delivers zone density updates every 10s
+S1-10
+Heatmap overlay on mobile map: live green/amber/red zone colouring
+Mobile
+Zones change colour live as simulator data changes
+
+Sprint 2 — Queue, Orders & Notifications (Week 5–6)
+🎯  Goal
+Attendees can join a virtual gate queue, pre-order food, and receive push notifications. Operator can broadcast zone alerts.
+
+#
+Task
+Owner
+Definition of Done
+S2-01
+Virtual queue: POST /queue/join; Redis INCR slot allocator; 5-min windows
+BE: order-mgmt-svc
+Slot returned with valid window; duplicate join rejected
+S2-02
+Gate queue UI: slot card + countdown timer + QR code on T=0
+Mobile
+Timer accurate; QR shown at window open
+S2-03
+GET /menu/{venue_id}: product catalogue + availability flag
+BE: order-mgmt-svc
+Returns 20 seed products; sold-out items flagged
+S2-04
+POST /orders: create order; Kafka event → kitchen display WebSocket
+BE: order-mgmt-svc
+Order on operator kitchen display within 3s
+S2-05
+Stripe/Razorpay sandbox payment integration
+BE: order-mgmt-svc
+Test card completes; webhook updates status → confirmed
+S2-06
+In-app food order flow: menu → cart → checkout → status tracking
+Mobile
+Full order placed end-to-end in simulator
+S2-07
+FCM device token registration: POST /notifications/register
+BE: notification-svc
+Token stored; test push delivered to registered device
+S2-08
+Targeted push: zone-based broadcast via operator-svc → notification-svc
+BE
+Alert to Zone A attendees; all receive within 30s in load test
+S2-09
+In-app notification inbox: list + unread badge
+Mobile
+Notifications appear; badge clears on open
+S2-10
+PWA: login, map, queue, order flows (80% parity with mobile)
+Frontend
+All 4 flows functional in Chrome desktop + mobile
+
+Sprint 3 — Operator Dashboard, Kiosk & Demo Readiness (Week 7–8)
+🎯  Goal
+Live operator dashboard deployed. Kiosk running on touch display. Full Phase 1 prototype passes all demo gates.
+
+#
+Task
+Owner
+Definition of Done
+S3-01
+Operator WS feed: zone_density_update + alert_triggered events
+BE: operator-svc
+Dashboard receives events <400ms after sim change
+S3-02
+Operator dashboard: live heatmap + zone drill-down + staff dispatch modal
+Frontend
+Operator clicks red zone → dispatches 3 stewards
+S3-03
+Broadcast alert UI: zone selector + composer + send + recipient count preview
+Frontend
+Alert sent from dashboard → mobile within 30s
+S3-04
+Incident log: dispatch + alert events with timestamp + author + filter
+BE + Frontend
+Table shows last 50 events; filterable by zone + type
+S3-05
+Kitchen display screen: live order queue + mark ready/collected
+Frontend
+Orders appear real-time; staff can update status
+S3-06
+Kiosk build: sandboxed PWA; map + wayfinding; guest mode; no auth
+Frontend
+Boots on 24-inch touch display; no browser chrome
+S3-07
+Offline mode: cache map + last route in IndexedDB / Service Worker
+Mobile + FE
+App shows cached map + offline banner when network lost
+S3-08
+Accessibility pass: keyboard nav + screen reader + WCAG contrast
+QA + Frontend
+axe-core: zero critical violations on 6 main screens
+S3-09
+Load test all Sprint 1–3 APIs: 5,000 VU, 30-min soak test
+QA / DevOps
+All p99 targets met; no 5xx; Grafana dashboard captured
+S3-10
+Demo prep: demo script + test accounts + reset script + rehearsal
+PM + QA
+Full demo runs end-to-end in <15 min unassisted
+
+
+15. Test Strategy
+15.1 Test Pyramid
+Level
+Tool
+Coverage Target
+Who Runs
+Unit
+Jest (TS/JS), pytest
+80% line coverage per service
+Dev on every commit
+Integration
+Supertest + testcontainers
+All API endpoints + Kafka flows
+Dev on every PR
+E2E (mobile)
+Detox (iOS + Android)
+6 critical user flows
+CI on main branch
+E2E (web)
+Playwright
+4 web flows + kiosk mode
+CI on main branch
+Load
+k6 + Grafana k6 Cloud
+All p99 SLA targets
+Pre-release + weekly
+Accessibility
+axe-core (CI gate)
+Zero critical violations
+Dev on every PR
+Security
+OWASP ZAP API scan
+No High/Critical findings
+Monthly + pre-release
+
+15.2 Critical Test Cases
+TC-ID
+Scenario
+Steps
+Pass Criteria
+TC-01
+Ticket login success
+POST /auth/login valid barcode → JWT → GET /auth/me
+Attendee profile returned; seat zone populated
+TC-02
+Wayfinding route returned
+POST /route gate-A → stand-D-row-12
+Valid path; all zone IDs exist; p99 <800ms
+TC-03
+Heatmap SSE cycle
+BLE sim 1000 events → TimescaleDB row → SSE event
+SSE received within 15s; density_pct ±2% expected
+TC-04
+Queue slot allocation — concurrency
+100 concurrent POST /queue/join same gate
+Each gets unique non-overlapping 5-min window
+TC-05
+Food order end-to-end
+Add 2 items → Stripe test card → confirm
+Order: pending → confirmed → ready; kitchen shows item
+TC-06
+Broadcast alert fan-out
+Operator sends zone alert to 1,000 test tokens
+≥99% delivery in 30s; no duplicates
+TC-07
+Offline map fallback
+Airplane mode mid-session on device
+Cached map renders; offline banner; no crash
+TC-08
+Gate queue window expiry
+Join queue → wait past window_end → scan
+Scanner returns 403 WINDOW_EXPIRED
+TC-09
+Concurrent orders stress
+200 users simultaneously POST /orders
+Zero 5xx; all orders in DB; p99 <1s
+TC-10
+Accessibility screen reader
+VoiceOver/TalkBack through map → order flow
+All elements announced; no focus traps
+
+15.3 k6 Load Test Script
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Rate } from 'k6/metrics';
+const errorRate = new Rate('errors');
+
+export const options = {
+  stages: [
+    { duration: '2m',  target: 1000 },  // ramp up
+    { duration: '5m',  target: 5000 },  // sustained peak (gate rush)
+    { duration: '10m', target: 5000 },  // soak
+    { duration: '2m',  target: 0    },  // ramp down
+  ],
+  thresholds: {
+    http_req_duration: ['p(99)<800'],   // wayfinding SLA
+    errors:            ['rate<0.01'],   // <1% error rate
+  },
+};
+
+export default function () {
+  const login = http.post(`${__ENV.BASE_URL}/auth/login`,
+    JSON.stringify({ barcode: `TICKET-${Math.random()}`, device_id: `dev-${__VU}` }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  check(login, { 'login 200': r => r.status === 200 });
+  const token = login.json('access_token');
+
+  const route = http.post(`${__ENV.BASE_URL}/venues/venue-001/route`,
+    JSON.stringify({ from_zone: 'zone-gate-a', to_zone: `zone-stand-${Math.ceil(Math.random()*2)}` }),
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+  );
+  check(route, { 'route 200': r => r.status === 200 });
+  errorRate.add(route.status !== 200);
+  sleep(1);
+}
+
+
+16. Seed Data & BLE Simulator
+16.1 Venue Seed — Rajiv Gandhi International Stadium, Hyderabad
+INSERT INTO venues (id, name, city, country_code, capacity) VALUES
+  ('venue-001', 'Rajiv Gandhi International Stadium', 'Hyderabad', 'IN', 55000);
+
+INSERT INTO zones (id, venue_id, name, type, floor, capacity) VALUES
+  ('zone-gate-a',  'venue-001', 'Gate A — Main Entry',    'gate',       0,  800),
+  ('zone-gate-b',  'venue-001', 'Gate B — North Entry',   'gate',       0,  600),
+  ('zone-gate-c',  'venue-001', 'Gate C — VIP Entry',     'gate',       0,  200),
+  ('zone-conc-n',  'venue-001', 'North Concourse',        'concourse',  0, 3000),
+  ('zone-conc-s',  'venue-001', 'South Concourse',        'concourse',  0, 3000),
+  ('zone-food-1',  'venue-001', 'Food Court — Level 1',   'concession', 1,  500),
+  ('zone-food-2',  'venue-001', 'Food Court — Level 2',   'concession', 2,  400),
+  ('zone-rest-n',  'venue-001', 'Restrooms — North',      'restroom',   0,   60),
+  ('zone-rest-s',  'venue-001', 'Restrooms — South',      'restroom',   0,   60),
+  ('zone-stand-l', 'venue-001', 'Lower Stand — East',     'stand',      1,12000),
+  ('zone-stand-u', 'venue-001', 'Upper Stand — West',     'stand',      2, 8000),
+  ('zone-exit-a',  'venue-001', 'Exit A — Main',          'exit',       0, 1000);
+
+16.2 Product Catalogue (20 items)
+INSERT INTO products (id, venue_id, name, category, price, currency, available) VALUES
+  ('prod-001','venue-001','Chicken Biryani Box',   'food',       299.00,'INR',true),
+  ('prod-002','venue-001','Veg Biryani Box',        'food',       249.00,'INR',true),
+  ('prod-003','venue-001','Paneer Wrap',            'food',       149.00,'INR',true),
+  ('prod-004','venue-001','Grilled Corn',           'food',        89.00,'INR',true),
+  ('prod-005','venue-001','French Fries Large',     'food',        99.00,'INR',true),
+  ('prod-006','venue-001','Pizza Slice',            'food',       129.00,'INR',true),
+  ('prod-007','venue-001','Pepsi 500ml',            'beverage',    60.00,'INR',true),
+  ('prod-008','venue-001','Water 1L',               'beverage',    30.00,'INR',true),
+  ('prod-009','venue-001','Fresh Lime Soda',        'beverage',    80.00,'INR',true),
+  ('prod-010','venue-001','Masala Chai',            'beverage',    40.00,'INR',true),
+  ('prod-011','venue-001','Cold Coffee',            'beverage',   120.00,'INR',true),
+  ('prod-012','venue-001','Energy Drink',           'beverage',   150.00,'INR',false),
+  ('prod-013','venue-001','Popcorn Salted',         'snack',       70.00,'INR',true),
+  ('prod-014','venue-001','Nachos with Salsa',      'snack',      110.00,'INR',true),
+  ('prod-015','venue-001','Peanuts Pack',           'snack',       40.00,'INR',true),
+  ('prod-016','venue-001','Ice Cream Cup',          'snack',       80.00,'INR',true),
+  ('prod-017','venue-001','Team Jersey',            'merchandise',1299.00,'INR',true),
+  ('prod-018','venue-001','Foam Finger',            'merchandise', 199.00,'INR',true),
+  ('prod-019','venue-001','Team Cap',               'merchandise', 499.00,'INR',true),
+  ('prod-020','venue-001','Keychain',               'merchandise',  99.00,'INR',true);
+
+16.3 BLE Crowd Simulator — Node.js
+Located at /services/ble-simulator/index.js. Emits realistic crowd density patterns to Kafka topic crowd.telemetry every 10 seconds, simulating a 95-minute match with entry surge, halftime peak, and exit rush patterns.
+
+const { Kafka } = require('kafkajs');
+const kafka = new Kafka({ brokers: [process.env.KAFKA_BROKER || 'localhost:9092'] });
+const producer = kafka.producer();
+
+const ZONES = [
+  { id:'zone-gate-a',  capacity:800,  pattern:'entry_surge'   },
+  { id:'zone-gate-b',  capacity:600,  pattern:'entry_surge'   },
+  { id:'zone-gate-c',  capacity:200,  pattern:'entry_light'   },
+  { id:'zone-conc-n',  capacity:3000, pattern:'normal'        },
+  { id:'zone-conc-s',  capacity:3000, pattern:'normal'        },
+  { id:'zone-food-1',  capacity:500,  pattern:'halftime_peak' },
+  { id:'zone-food-2',  capacity:400,  pattern:'halftime_peak' },
+  { id:'zone-rest-n',  capacity:60,   pattern:'halftime_peak' },
+  { id:'zone-rest-s',  capacity:60,   pattern:'halftime_peak' },
+  { id:'zone-stand-l', capacity:12000,pattern:'stable_high'   },
+  { id:'zone-stand-u', capacity:8000, pattern:'stable_high'   },
+  { id:'zone-exit-a',  capacity:1000, pattern:'exit_surge'    },
+];
+
+function getDensity(pattern, min) {
+  const r = () => Math.random() * 0.1;
+  switch(pattern) {
+    case 'entry_surge':   return min < 30  ? 0.4 + r() + 0.4 : 0.1 + r();
+    case 'entry_light':   return min < 20  ? 0.3 + r()       : 0.05;
+    case 'halftime_peak': return (min>44&&min<60) ? 0.7+r()+0.2 : 0.15+r();
+    case 'stable_high':   return 0.82 + r();
+    case 'exit_surge':    return min > 88  ? 0.6 + r() + 0.3 : 0.05;
+    default:              return 0.2 + r() * 3;
+  }
+}
+
+async function run() {
+  await producer.connect();
+  let minute = 0;
+  setInterval(async () => {
+    minute = (minute + 1) % 95;
+    for (const zone of ZONES) {
+      const density = Math.min(1, getDensity(zone.pattern, minute));
+      await producer.send({ topic: 'crowd.telemetry', messages: [{ value: JSON.stringify({
+        time: new Date().toISOString(),
+        zone_id: zone.id,
+        device_count: Math.round(zone.capacity * density),
+        density_pct: +(density * 100).toFixed(2),
+        flow_dir: density > 0.5 ? 'inbound' : 'static',
+        source: 'ble_simulator'
+      })}]});
+    }
+    console.log(`[BLE-SIM] minute=${minute} — 12 zone events emitted`);
+  }, 10000);  // every 10s = 10s heatmap cadence
+}
+run().catch(console.error);
+
+
+17. Environment Matrix
+
+Dev (local)
+Staging
+Production
+DR
+Infra
+Docker Compose
+EKS (dev ns)
+EKS (prod ns)
+EKS standby (us-east-1)
+Database
+Postgres 15 Docker
+Aurora 1-AZ
+Aurora Multi-AZ
+Read Replica promoted
+Kafka
+1 broker Docker
+MSK 2-broker
+MSK 3-broker HA
+MSK cross-region replica
+BLE Source
+Simulator script
+Sim + 5 real beacons
+Full beacon grid
+Simulator fallback
+Push (FCM/APNs)
+Sandbox creds
+Sandbox creds
+Production creds
+Production creds
+Payment
+Stripe test mode
+Stripe test mode
+Stripe/Razorpay live
+Live (failover)
+Observability
+Local Grafana stack
+Grafana Cloud (free)
+Grafana Cloud (prod)
+Grafana Cloud (DR alert)
+Deploy trigger
+npm run dev
+Auto on PR merge to main
+Manual promote + canary
+Auto failover
+
+
+18. Prototype Definition of Done — Phase 1
+The prototype is demo-ready only when ALL 13 gates below are green. Each gate requires a documented artefact (test report, screen recording, or Grafana screenshot).
+
+Gate
+Requirement
+Verification Artefact
+G-01
+Attendee logs in with test ticket barcode on iOS + Android
+QA demo recording
+G-02
+Venue map loads with all 12 zones within 3s on 4G
+Lighthouse report
+G-03
+Wayfinding returns route from any gate to any stand in <800ms p99
+k6 load test report
+G-04
+Live heatmap updates every 10s with BLE simulator running
+Screen recording of zones colour-changing
+G-05
+Food order placed end-to-end via Stripe test card; appears on kitchen display
+QA demo recording
+G-06
+Gate queue slot assigned; countdown timer accurate; no slot conflicts
+QA demo + DB query showing no overlaps
+G-07
+Operator broadcasts zone alert; received on mobile within 30s
+Stopwatch measurement in demo
+G-08
+Operator dashboard shows live heatmap + staff dispatch functional
+QA demo recording
+G-09
+Kiosk boots in kiosk mode on 24-inch touch display; map + wayfinding work
+Physical kiosk demo recording
+G-10
+All 10 critical test cases TC-01 to TC-10 pass
+CI test report screenshot
+G-11
+axe-core reports zero critical accessibility violations
+CI report link + Storybook A11y panel
+G-12
+Offline mode: app shows cached map when airplane mode enabled mid-session
+QA device test recording
+G-13
+All p99 latency targets met under 5,000 VU 30-min load test
+Grafana k6 dashboard screenshot
+
+
+19. Open Engineering Questions
+❓  Indoor Positioning SDK Choice
+Evaluate: (a) native BLE trilateration custom, (b) Mapbox Indoor SDK, (c) IndoorAtlas, (d) Pointr. Decision needed before Sprint 1 kickoff to avoid beacon abstraction layer rework.
+
+❓  Offline Grace Period
+If attendee loses connectivity mid-navigation — options: (a) fixed 5-min cache TTL, (b) invalidate on next BLE heartbeat mismatch, (c) keep until explicit re-sync. Must be decided before Sprint 1 coding freeze.
+
+❓  Kiosk Update Strategy
+(a) OTA via Service Worker nightly, (b) operator triggers update from dashboard, (c) forced refresh at fixed time. Impacts deployment pipeline and rollback strategy.
+
+❓  Multi-tenancy Model
+Hard isolation (per-venue Kubernetes namespace) vs shared cluster with row-level security. Decision affects onboarding automation, cost, and compliance boundary.
+
+❓  Data Ownership & Licensing
+Who owns aggregate crowd analytics — venue, organiser, or StadiumIQ? Licensing model required before pilot contracts can be signed.
+
+StadiumIQ Complete Engineering PRD v2.0  ·  Confidential & Proprietary  ·  Internal Engineering Use Only  ·  Not for external distribution

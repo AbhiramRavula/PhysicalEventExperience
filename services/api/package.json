@@ -1,22 +1,28 @@
 {
-  "name": "api",
+  "name": "api-service",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "StadiumIQ Monolithic API",
+  "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "devDependencies": {
-    "@types/node": "^25.6.0",
-    "prisma": "^6.19.3",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.2"
+    "dev": "ts-node src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "db:setup": "prisma db push"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3"
+    "@prisma/client": "^6.19.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.8",
+    "@types/node": "^22.13.4",
+    "prisma": "^6.19.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
   }
 }
