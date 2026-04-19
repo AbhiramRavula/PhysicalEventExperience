@@ -1,261 +1,460 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import StadiumMap from '@/components/StadiumMap';
 
-type Tab = 'map' | 'food' | 'queue';
+type Tab = 'live' | 'map' | 'order' | 'ticket';
+
+// ── Ball-by-ball feed ──────────────────────────────────────────
+const BALLS = [
+  { run: 6, over: '15.1', bowler: 'Siraj', batter: 'Abhishek', desc: 'MAXIMUM! Pulled over mid-wicket!', color: 'from-purple-600 to-indigo-700' },
+  { run: 1, over: '15.2', bowler: 'Siraj', batter: 'Abhishek', desc: 'Pushed to mid-on, quick single.', color: 'from-slate-700 to-slate-800' },
+  { run: 4, over: '15.3', bowler: 'Siraj', batter: 'Heinrich', desc: 'FOUR! Driven through covers, beautiful!', color: 'from-blue-600 to-blue-800' },
+  { run: 0, over: '15.4', bowler: 'Siraj', batter: 'Heinrich', desc: 'Good length, defended back.', color: 'from-slate-700 to-slate-800' },
+  { run: 0, over: '15.5', bowler: 'Siraj', batter: 'Heinrich', desc: 'Bouncer, ducked under. Freebie coming?', color: 'from-slate-700 to-slate-800' },
+];
+
+const KEY_MOMENTS = [
+  { time: '14.2', title: 'WICKET', desc: 'Shahbaz caught at long-on by Maxwell', icon: '🔴', color: 'text-red-400 border-red-500/20 bg-red-500/8' },
+  { time: '10.0', title: 'SIX', desc: 'Heinrich Klaasen 100m meteor off Hazlewood', icon: '🟣', color: 'text-purple-400 border-purple-500/20 bg-purple-500/8' },
+  { time: '6.4', title: 'FOUR', desc: 'Abhishek Sharma flicks fine leg boundary', icon: '🔵', color: 'text-blue-400 border-blue-500/20 bg-blue-500/8' },
+  { time: '3.1', title: 'WICKET', desc: 'Head stumped down the pitch, Dinesh sharp!', icon: '🔴', color: 'text-red-400 border-red-500/20 bg-red-500/8' },
+];
+
+// ── Food menu ──────────────────────────────────────────────────
+const MENU = [
+  { id: 'm1', emoji: '🍛', name: 'Chicken Biryani', price: 299, prep: 8, cat: 'Food', popular: true, stall: 'Court L1 · Near Gate B' },
+  { id: 'm2', emoji: '🥟', name: 'Samosa Platter (3pc)', price: 120, prep: 3, cat: 'Snacks', popular: false, stall: 'North Snacks · Gate A' },
+  { id: 'm3', emoji: '🧆', name: 'Paneer Tikka (6pc)', price: 189, prep: 5, cat: 'Snacks', popular: true, stall: 'North Snacks · Gate A' },
+  { id: 'm4', emoji: '🌽', name: 'Loaded Nachos', price: 149, prep: 6, cat: 'Snacks', popular: false, stall: 'Section D Kiosk' },
+  { id: 'm5', emoji: '🥤', name: 'Chilled Pepsi 500ml', price: 60, prep: 1, cat: 'Drinks', popular: false, stall: 'Any Stand Kiosk' },
+  { id: 'm6', emoji: '🍺', name: 'Kingfisher Draft', price: 180, prep: 2, cat: 'Drinks', popular: true, stall: 'Gate B Bar · Section D' },
+  { id: 'm7', emoji: '☕', name: 'Masala Chai', price: 40, prep: 2, cat: 'Drinks', popular: false, stall: 'Any Stall' },
+  { id: 'm8', emoji: '👕', name: 'SRH Jersey 2025', price: 1299, prep: 0, cat: 'Merch', popular: true, stall: 'Official Merch · East Wing' },
+];
 
 export default function FanExperience() {
-  const [activeTab, setActiveTab] = useState<Tab>('map');
-  const [cartItems, setCartItems] = useState<string[]>([]);
-  const [showCartFlash, setShowCartFlash] = useState(false);
+  const [tab, setTab] = useState<Tab>('live');
+  const [cart, setCart] = useState<Record<string, number>>({});
+  const [cheerLevel, setCheerLevel] = useState(62);
+  const [cheerBurst, setCheerBurst] = useState(false);
+  const [activeCat, setActiveCat] = useState('All');
+  const [currentBall, setCurrentBall] = useState(0);
+  const [countdown, setCountdown] = useState(180); // seconds to next ball
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const addToCart = (name: string) => {
-    setCartItems(prev => [...prev, name]);
-    setShowCartFlash(true);
-    setTimeout(() => setShowCartFlash(false), 1800);
+  // Simulate cheer level fluctuating
+  useEffect(() => {
+    const t = setInterval(() => {
+      setCheerLevel(prev => Math.min(100, Math.max(30, prev + (Math.random() * 10 - 5))));
+    }, 2500);
+    return () => clearInterval(t);
+  }, []);
+
+  // Countdown to next delivery
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) {
+          setCurrentBall(b => (b + 1) % BALLS.length);
+          return 30 + Math.floor(Math.random() * 20);
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, []);
+
+  const cartCount = Object.values(cart).reduce((a, b) => a + b, 0);
+  const cartTotal = Object.entries(cart).reduce((sum, [id, qty]) => {
+    const item = MENU.find(m => m.id === id);
+    return sum + (item?.price ?? 0) * qty;
+  }, 0);
+
+  const addToCart = (id: string) => setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 }));
+  const removeFromCart = (id: string) => setCart(c => {
+    if ((c[id] || 0) <= 1) { const n = { ...c }; delete n[id]; return n; }
+    return { ...c, [id]: c[id] - 1 };
+  });
+
+  const filteredMenu = activeCat === 'All' ? MENU : MENU.filter(m => m.cat === activeCat);
+
+  const ball = BALLS[currentBall];
+
+  const cheer = () => {
+    setCheerBurst(true);
+    setCheerLevel(prev => Math.min(100, prev + 15));
+    setTimeout(() => setCheerBurst(false), 800);
   };
 
   return (
-    <div className="min-h-screen bg-[#050B18] text-white font-sans max-w-md mx-auto shadow-2xl relative overflow-hidden flex flex-col">
+    <div className="min-h-screen bg-[#04080f] text-white font-sans max-w-md mx-auto relative overflow-hidden flex flex-col shadow-2xl">
 
       {/* ── APP BAR ── */}
-      <header className="px-5 pt-12 pb-4 flex justify-between items-center bg-[#0A1124]/90 backdrop-blur-md sticky top-0 z-20 border-b border-white/5">
+      <header className="px-5 pt-12 pb-3.5 bg-[#07101e]/95 backdrop-blur-xl sticky top-0 z-30 border-b border-white/5 flex justify-between items-center">
         <div>
-          <h1 className="text-xl font-black tracking-tight">Stadium<span className="text-blue-500">IQ</span></h1>
-          <p className="text-[9px] text-white/40 font-bold uppercase tracking-[0.22em] mt-0.5">Rajiv Gandhi Stadium · IPL 2025</p>
+          <h1 className="text-xl font-black tracking-tight leading-none">Stadium<span className="text-blue-500">IQ</span></h1>
+          <p className="text-[9px] text-white/35 font-bold uppercase tracking-[0.22em] mt-1">Rajiv Gandhi · IPL 2025</p>
         </div>
-        <div className="flex gap-3 items-center">
-          {/* Live indicator */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 border border-red-500/20 rounded-full">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/12 border border-red-500/25 rounded-full">
             <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-            <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">Live</span>
+            <span className="text-[9px] font-black text-red-400 uppercase tracking-wide">Live</span>
           </div>
-          <button className="relative p-2 bg-white/5 rounded-full border border-white/10 hover:bg-white/10 transition-colors">
-            <span className="text-base">🔔</span>
-            <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full border-2 border-[#050B18]" />
+          <button className="relative w-8 h-8 bg-white/5 rounded-full border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
+            <span className="text-sm">🔔</span>
+            <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-[#07101e]" />
           </button>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-[10px] font-black">AR</div>
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-[10px] font-black border border-white/10">AR</div>
         </div>
       </header>
 
-      {/* ── BODY ── */}
-      <main className="flex-1 overflow-y-auto pb-32">
+      {/* ── SCROLLABLE BODY ── */}
+      <main className="flex-1 overflow-y-auto pb-28 overscroll-contain">
 
-        {/* MATCH TICKER */}
-        <section className="px-5 pt-5 pb-0">
-          <div className="bg-gradient-to-r from-[#0e1f42] via-[#111f48] to-[#0a1a3a] rounded-2xl border border-white/8 p-4 flex items-center gap-3 overflow-hidden relative">
-            <div className="flex-1 min-w-0">
-              <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-400/80 mb-1">Live Score · T20 · Over 15.3</div>
-              <div className="flex items-baseline gap-3">
-                <div>
-                  <span className="text-2xl font-black text-white">156</span>
-                  <span className="text-sm text-white/50 font-bold">/4</span>
+        {/* ═══════════════════════════════════════ LIVE TAB */}
+        {tab === 'live' && (
+          <div className="space-y-0">
+            {/* SCORE HERO */}
+            <div className="bg-gradient-to-b from-[#09163a] to-[#04080f] px-5 pt-5 pb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400/80">T20 · IPL · Over 15.3</div>
+                <div className="text-[9px] text-white/30 font-bold">HYD v/s BLR</div>
+              </div>
+
+              {/* Teams row */}
+              <div className="flex items-center gap-3">
+                {/* HYD */}
+                <div className="flex-1">
+                  <div className="text-[9px] font-black uppercase tracking-wide text-amber-400/80 mb-1">HYD 🟠</div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl font-black">156</span>
+                    <span className="text-lg text-white/40 font-bold">/4</span>
+                  </div>
+                  <div className="text-[10px] text-white/40 mt-1">15.3 overs · RR 10.1</div>
                 </div>
-                <div className="text-[10px] text-white/40 font-bold uppercase">HYD <span className="text-white/20">vs</span> BLR</div>
-                <div className="ml-auto text-right">
-                  <div className="text-[9px] text-white/40 uppercase font-bold">Target</div>
-                  <div className="text-sm font-black text-amber-400">186</div>
+
+                {/* Divider */}
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  <div className="text-[8px] text-white/20 font-black uppercase">Need</div>
+                  <div className="text-xl font-black text-amber-400">30</div>
+                  <div className="text-[8px] text-white/20">27 balls</div>
+                </div>
+
+                {/* BLR */}
+                <div className="flex-1 text-right">
+                  <div className="text-[9px] font-black uppercase tracking-wide text-red-400/80 mb-1">🔴 BLR</div>
+                  <div className="flex items-baseline gap-1.5 justify-end">
+                    <span className="text-4xl font-black">185</span>
+                    <span className="text-lg text-white/40 font-bold">/7</span>
+                  </div>
+                  <div className="text-[10px] text-white/40 mt-1">20 overs · RR 9.25</div>
                 </div>
               </div>
-              <div className="flex gap-1 mt-2">
-                {[1,4,0,6,1,2].map((r, i) => (
-                  <span key={i} className={`w-5 h-5 rounded-full text-[9px] font-black flex items-center justify-center ${r === 6 ? 'bg-purple-500/80' : r === 4 ? 'bg-blue-500/80' : r === 0 ? 'bg-white/10' : 'bg-white/20'}`}>{r}</span>
-                ))}
-                <span className="w-5 h-5 rounded-full text-[9px] font-black flex items-center justify-center bg-white/5 text-white/30">·</span>
+
+              {/* This over */}
+              <div className="mt-4">
+                <div className="text-[8px] text-white/25 font-bold uppercase tracking-wider mb-1.5">This Over</div>
+                <div className="flex gap-1.5 items-center">
+                  {[1, 4, 0, 6, 1, 4].map((r, i) => (
+                    <div
+                      key={i}
+                      className={`w-7 h-7 rounded-full text-[10px] font-black flex items-center justify-center border ${
+                        r === 6 ? 'bg-purple-600/80 border-purple-500 text-white' :
+                        r === 4 ? 'bg-blue-600/80 border-blue-500 text-white' :
+                        r === 'W' ? 'bg-red-600/80 border-red-500 text-white' :
+                        r === 0 ? 'bg-white/5 border-white/10 text-white/40' :
+                        'bg-white/10 border-white/15 text-white'
+                      }`}
+                    >{r}</div>
+                  ))}
+                  <div className="w-7 h-7 rounded-full bg-white/5 border border-dashed border-white/15 flex items-center justify-center text-white/20 text-sm">·</div>
+                </div>
               </div>
             </div>
-            <div className="shrink-0 w-px h-12 bg-white/10" />
-            <div className="shrink-0 text-center px-2">
-              <div className="text-[9px] text-white/40 uppercase font-bold mb-1">RRR</div>
-              <div className="text-lg font-black text-amber-400">12.5</div>
-              <div className="text-[8px] text-white/30">per over</div>
-            </div>
-          </div>
-        </section>
 
-        {/* ACTIVE TICKET */}
-        <section className="px-5 pt-4">
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-5 shadow-xl shadow-blue-500/20 relative overflow-hidden group">
-            <div className="relative z-10">
-              <div className="text-[9px] font-bold uppercase tracking-widest text-white/70 mb-0.5">Your Ticket</div>
-              <h2 className="text-base font-black mb-3">Hyderabad Sunrisers <span className="text-white/50">vs</span> Bangalore RCB</h2>
-              <div className="flex gap-4 text-[10px]">
+            {/* BATTERS AT CREASE */}
+            <div className="px-5 py-4 border-y border-white/5 bg-[#060e1c]">
+              <div className="text-[9px] font-black uppercase tracking-widest text-white/25 mb-3">At The Crease</div>
+              <div className="space-y-2">
                 {[
-                  { label: 'Gate', value: 'B' },
-                  { label: 'Block', value: 'D4' },
-                  { label: 'Row', value: '12' },
-                  { label: 'Seat', value: '34' },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <div className="text-white/50 mb-0.5">{label}</div>
-                    <div className="font-black text-sm">{value}</div>
+                  { name: 'H. Klaasen ★', runs: 68, balls: 38, sr: '178.9', batting: true },
+                  { name: 'Abhishek Sharma', runs: 42, balls: 28, sr: '150.0', batting: false },
+                ].map(({ name, runs, balls, sr, batting }) => (
+                  <div key={name} className={`flex items-center p-2.5 rounded-xl border ${batting ? 'border-amber-500/25 bg-amber-500/8' : 'border-white/5 bg-white/3'}`}>
+                    <div className="flex-1">
+                      <span className="text-xs font-black">{name}</span>
+                      {batting && <span className="ml-2 text-[8px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-bold">ON STRIKE</span>}
+                    </div>
+                    <div className="flex gap-4 text-right">
+                      <div><div className="text-[8px] text-white/30">R(B)</div><div className="text-sm font-black">{runs}({balls})</div></div>
+                      <div><div className="text-[8px] text-white/30">SR</div><div className={`text-sm font-black ${parseFloat(sr) > 150 ? 'text-emerald-400' : 'text-white'}`}>{sr}</div></div>
+                    </div>
                   </div>
                 ))}
-                <button className="ml-auto bg-white text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black shadow-lg group-hover:scale-105 transition-transform self-end">
-                  Navigate →
-                </button>
               </div>
             </div>
-            <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-            <div className="absolute -left-4 -bottom-10 w-24 h-24 bg-indigo-800/30 rounded-full blur-2xl pointer-events-none" />
-          </div>
-        </section>
 
-        {/* ── MAP TAB ── */}
-        {activeTab === 'map' && (
-          <section className="px-5 pt-5 space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Stadium Map</h3>
-              <div className="flex items-center gap-3 text-[9px] text-white/40 font-bold uppercase tracking-wider">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" />You</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" />Food</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-400" />WC</span>
+            {/* CHEER METER */}
+            <div className="px-5 py-5 bg-[#04080f]">
+              <div className="text-[9px] font-black uppercase tracking-widest text-white/25 mb-3">Crowd Energy</div>
+              <div className="bg-[#080f1e] rounded-2xl border border-white/8 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="text-[10px] text-white/40 font-bold">Stadium Buzz</div>
+                    <div className={`text-2xl font-black mt-0.5 ${cheerLevel > 80 ? 'text-red-400' : cheerLevel > 60 ? 'text-amber-400' : 'text-emerald-400'}`}>{Math.round(cheerLevel)}%</div>
+                  </div>
+                  <button
+                    onClick={cheer}
+                    className={`w-16 h-16 rounded-2xl flex flex-col items-center justify-center gap-0.5 font-black text-sm transition-all active:scale-90 ${cheerBurst ? 'bg-amber-500 scale-110' : 'bg-white/8 border border-white/15 hover:bg-white/12'}`}
+                  >
+                    <span className="text-2xl">{cheerBurst ? '🎉' : '📣'}</span>
+                    <span className="text-[8px] uppercase tracking-wider text-white/60">Cheer!</span>
+                  </button>
+                </div>
+                {/* Energy bar */}
+                <div className="h-3 bg-white/5 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${cheerLevel > 80 ? 'bg-gradient-to-r from-red-500 to-orange-500' : cheerLevel > 60 ? 'bg-gradient-to-r from-amber-500 to-yellow-400' : 'bg-gradient-to-r from-emerald-500 to-teal-400'}`}
+                    style={{ width: `${cheerLevel}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[8px] text-white/20 mt-1.5">
+                  <span>Quiet</span><span>Buzzing</span><span>ROARING 🔥</span>
+                </div>
               </div>
+            </div>
+
+            {/* LIVE DELIVERY CARD */}
+            <div className="px-5 pb-5">
+              <div className="text-[9px] font-black uppercase tracking-widest text-white/25 mb-3">Latest Delivery</div>
+              <div className={`rounded-2xl bg-gradient-to-br ${ball.color} p-4 shadow-xl`}>
+                <div className="flex justify-between items-start mb-2">
+                  <div className="text-[9px] text-white/70 font-bold uppercase tracking-wider">Over {ball.over}</div>
+                  <div className={`text-2xl font-black ${ball.run === 6 ? 'text-yellow-300' : ball.run === 4 ? 'text-cyan-300' : 'text-white'}`}>{ball.run === 6 ? 'SIX!' : ball.run === 4 ? 'FOUR!' : ball.run === 0 ? 'DOT' : `${ball.run} RUN`}</div>
+                </div>
+                <div className="text-sm font-bold text-white/90 leading-snug">{ball.desc}</div>
+                <div className="flex gap-3 mt-3 text-[9px] text-white/50">
+                  <span>🏏 {ball.batter}</span>
+                  <span>⚡ {ball.bowler}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* KEY MOMENTS */}
+            <div className="px-5 pb-6">
+              <div className="text-[9px] font-black uppercase tracking-widest text-white/25 mb-3">Key Moments</div>
+              <div className="space-y-2">
+                {KEY_MOMENTS.map(moment => (
+                  <div key={moment.time} className={`flex items-center gap-3 p-3 rounded-xl border ${moment.color}`}>
+                    <span className="text-base shrink-0">{moment.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black uppercase tracking-wider">{moment.title}</span>
+                        <span className="text-[8px] text-white/30">Over {moment.time}</span>
+                      </div>
+                      <div className="text-[10px] text-white/60 truncate mt-0.5">{moment.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════ MAP TAB */}
+        {tab === 'map' && (
+          <div className="px-5 pt-5 space-y-4">
+            {/* Your seat card */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-4 relative overflow-hidden">
+              <div className="text-[9px] font-black uppercase tracking-widest text-white/70 mb-1">Your Seat</div>
+              <div className="flex items-end justify-between">
+                <div className="flex gap-4">
+                  {[['Gate', 'B'], ['Block', 'D4'], ['Row', '12'], ['Seat', '34']].map(([l, v]) => (
+                    <div key={l}>
+                      <div className="text-[8px] text-white/50">{l}</div>
+                      <div className="text-lg font-black">{v}</div>
+                    </div>
+                  ))}
+                </div>
+                <button className="bg-white text-blue-600 px-3.5 py-2 rounded-xl text-[10px] font-black shadow-lg">Navigate →</button>
+              </div>
+              <div className="absolute -right-6 -top-6 w-28 h-28 bg-white/10 rounded-full blur-2xl" />
+            </div>
+
+            {/* Legend */}
+            <div className="flex gap-4 text-[9px] text-white/35 font-bold uppercase tracking-wider">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-400" />You</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-400" />Food</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-400" />Restroom</span>
             </div>
 
             {/* Stadium SVG */}
-            <div className="bg-[#080f1e] rounded-3xl border border-white/8 p-3 relative overflow-hidden aspect-[5/4]">
+            <div className="bg-[#07101e] rounded-3xl border border-white/8 p-2 aspect-[5/4] overflow-hidden">
               <StadiumMap showPlayerPin compact />
             </div>
 
-            {/* Wayfinding card */}
-            <div className="bg-[#0A1124] rounded-2xl border border-white/8 p-4 flex items-center gap-3">
-              <div className="w-9 h-9 bg-blue-500/15 rounded-xl flex items-center justify-center text-lg shrink-0">📍</div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[9px] font-bold text-white/40 uppercase tracking-wider mb-0.5">Nearest Food Stall</div>
-                <div className="text-sm font-bold truncate">Gate B Concessions</div>
-                <div className="text-[10px] text-white/40 mt-0.5">~80m · Est. 3 min wait</div>
+            {/* Facilities */}
+            <div>
+              <div className="text-[9px] font-black uppercase tracking-widest text-white/25 mb-3">Nearby Facilities</div>
+              <div className="space-y-2">
+                {[
+                  { icon: '🍔', label: 'Gate B Food Court', sub: 'Section D · ~80m · 3 min queue', action: 'Order', color: 'text-amber-400', acColor: 'bg-amber-500/15 border-amber-500/25 text-amber-400' },
+                  { icon: '🚻', label: 'Restrooms North', sub: 'Near Gate B entry · 1 min wait', action: 'Go', color: 'text-purple-400', acColor: 'bg-purple-500/15 border-purple-500/25 text-purple-400' },
+                  { icon: '🏥', label: 'First Aid Station', sub: 'Gate A · Always open', action: 'Go', color: 'text-red-400', acColor: 'bg-red-500/15 border-red-500/25 text-red-400' },
+                  { icon: '🛒', label: 'Official Merch', sub: 'East Wing · Currently busy', action: 'Go', color: 'text-emerald-400', acColor: 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400' },
+                  { icon: '🅿️', label: 'Parking Exit P3', sub: 'South Gate · ~400m', action: 'Go', color: 'text-blue-400', acColor: 'bg-blue-500/15 border-blue-500/25 text-blue-400' },
+                ].map(({ icon, label, sub, action, acColor }) => (
+                  <div key={label} className="flex items-center gap-3 bg-[#080f1e] border border-white/5 rounded-2xl p-3.5 hover:border-white/12 transition-colors">
+                    <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-xl shrink-0">{icon}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold truncate">{label}</div>
+                      <div className="text-[9px] text-white/35 mt-0.5">{sub}</div>
+                    </div>
+                    <button className={`shrink-0 px-3 py-1.5 rounded-xl text-[9px] font-black border ${acColor}`}>{action}</button>
+                  </div>
+                ))}
               </div>
-              <button className="shrink-0 bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-xl text-[10px] font-bold transition-colors">Go</button>
             </div>
-
-            {/* Facilities row */}
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { icon: '🚻', label: 'Restrooms', sub: 'North · 1m wait', color: 'text-purple-400' },
-                { icon: '🏥', label: 'First Aid', sub: 'Gate A · Open', color: 'text-red-400' },
-                { icon: '🛒', label: 'Merch', sub: 'East Wing · Busy', color: 'text-amber-400' },
-              ].map(({ icon, label, sub, color }) => (
-                <div key={label} className="bg-[#0A1124] rounded-2xl border border-white/5 p-3 hover:border-white/15 transition-colors cursor-pointer active:scale-95">
-                  <div className="text-lg mb-1">{icon}</div>
-                  <div className={`text-[10px] font-bold ${color}`}>{label}</div>
-                  <div className="text-[8px] text-white/30 mt-0.5">{sub}</div>
-                </div>
-              ))}
-            </div>
-          </section>
+          </div>
         )}
 
-        {/* ── FOOD TAB ── */}
-        {activeTab === 'food' && (
-          <section className="px-5 pt-5 space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Order to Seat</h3>
-              {cartItems.length > 0 && (
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-full">
-                  <span className="text-[9px] font-bold text-blue-400">🛒 {cartItems.length} items</span>
-                </div>
-              )}
+        {/* ═══════════════════════════════════════ ORDER TAB */}
+        {tab === 'order' && (
+          <div className="pt-5 space-y-4">
+            {/* Seat delivery banner */}
+            <div className="mx-5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3.5 flex items-center gap-3">
+              <span className="text-2xl">🛵</span>
+              <div>
+                <div className="text-xs font-black text-emerald-400">Deliver to Block D4 · Row 12 · Seat 34</div>
+                <div className="text-[9px] text-white/40 mt-0.5">Avg wait 12–18 min · Free delivery today</div>
+              </div>
             </div>
 
-            {/* Category pills */}
-            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-              {['All', 'Food', 'Drinks', 'Snacks', 'Merch'].map((cat, i) => (
-                <button key={cat} className={`shrink-0 px-4 py-1.5 rounded-full text-[10px] font-bold border transition-colors ${i === 0 ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}>
+            {/* Category filter */}
+            <div className="px-5 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+              {['All', 'Food', 'Snacks', 'Drinks', 'Merch'].map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCat(cat)}
+                  className={`shrink-0 px-4 py-1.5 rounded-full text-[10px] font-black border transition-colors ${activeCat === cat ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-white/45 hover:text-white'}`}
+                >
                   {cat}
                 </button>
               ))}
             </div>
 
-            <div className="space-y-3">
-              {[
-                { name: 'Classic Chicken Biryani', price: '₹299', cat: 'Food Court L1 · Gate B', emoji: '🍛', prep: '8 min', popular: true },
-                { name: 'Paneer Tikka (6pc)', price: '₹189', cat: 'North Snacks · Gate A', emoji: '🧆', prep: '5 min', popular: false },
-                { name: 'Samosa Platter (3pc)', price: '₹120', cat: 'North Snacks · Gate A', emoji: '🥟', prep: '3 min', popular: false },
-                { name: 'Chilled Pepsi 500ml', price: '₹60', cat: 'Beverage Stand', emoji: '🥤', prep: '1 min', popular: false },
-                { name: 'SRH Team Jersey 2025', price: '₹1,299', cat: 'Official Merch · East', emoji: '👕', prep: 'Pickup', popular: true },
-                { name: 'Loaded Nachos', price: '₹149', cat: 'Food Court L1', emoji: '🌽', prep: '6 min', popular: false },
-              ].map(({ name, price, cat, emoji, prep, popular }) => (
-                <div key={name} className="bg-[#0A1124] rounded-2xl border border-white/5 p-4 flex gap-3 items-center group hover:border-white/10 transition-colors active:scale-[0.98]">
-                  <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-2xl shrink-0">{emoji}</div>
+            {/* Menu items */}
+            <div className="px-5 space-y-2.5">
+              {filteredMenu.map(item => (
+                <div key={item.id} className="bg-[#080f1e] border border-white/5 rounded-2xl p-4 flex gap-3 items-center hover:border-white/10 transition-colors">
+                  <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-2xl shrink-0">{item.emoji}</div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-0.5">
-                      <div className="text-[9px] font-bold text-blue-400 uppercase tracking-tighter">{cat}</div>
-                      {popular && <span className="text-[8px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded-full font-bold uppercase">Popular</span>}
+                      <span className="text-[8px] font-bold text-white/30 uppercase">{item.stall}</span>
+                      {item.popular && <span className="text-[8px] px-1.5 py-0.5 bg-amber-500/18 text-amber-400 rounded-full font-black">⭐ Popular</span>}
                     </div>
-                    <div className="text-sm font-bold truncate">{name}</div>
+                    <div className="text-sm font-bold">{item.name}</div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <div className="text-xs font-black">{price}</div>
-                      <div className="text-[9px] text-white/30">· {prep}</div>
+                      <span className="text-xs font-black">₹{item.price}</span>
+                      {item.prep > 0 && <span className="text-[9px] text-white/25">· {item.prep} min prep</span>}
                     </div>
                   </div>
-                  <button
-                    onClick={() => addToCart(name)}
-                    className="shrink-0 w-9 h-9 bg-white/5 rounded-xl flex items-center justify-center text-lg hover:bg-blue-600 transition-colors font-bold"
-                  >
-                    +
-                  </button>
+                  {/* Cart controls */}
+                  {cart[item.id] ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => removeFromCart(item.id)} className="w-8 h-8 bg-white/8 rounded-lg text-lg font-black hover:bg-red-500/20 transition-colors flex items-center justify-center">−</button>
+                      <span className="text-sm font-black w-4 text-center">{cart[item.id]}</span>
+                      <button onClick={() => addToCart(item.id)} className="w-8 h-8 bg-blue-600 rounded-lg text-lg font-black hover:bg-blue-500 transition-colors flex items-center justify-center">+</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => addToCart(item.id)} className="shrink-0 w-9 h-9 bg-white/5 border border-white/10 rounded-xl text-xl font-black hover:bg-blue-600 hover:border-blue-500 transition-colors flex items-center justify-center">+</button>
+                  )}
                 </div>
               ))}
             </div>
-          </section>
+          </div>
         )}
 
-        {/* ── QUEUE TAB ── */}
-        {activeTab === 'queue' && (
-          <section className="px-5 pt-5 space-y-5">
-            <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Entry Pass</h3>
+        {/* ═══════════════════════════════════════ TICKET TAB */}
+        {tab === 'ticket' && (
+          <div className="px-5 pt-5 space-y-4">
+            <div className="text-[9px] font-black uppercase tracking-widest text-white/25">Your Entry Pass</div>
 
-            {/* QR Card */}
-            <div className="bg-[#0A1124] rounded-3xl border border-white/8 overflow-hidden">
-              <div className="p-5 text-center border-b border-dashed border-white/10">
-                <div className="w-44 h-44 bg-white rounded-2xl mx-auto flex items-center justify-center shadow-2xl relative">
-                  {/* Faux QR pattern */}
-                  <div className="w-36 h-36 grid grid-cols-7 gap-0.5">
-                    {Array.from({ length: 49 }).map((_, i) => {
-                      const corners = [0,1,2,7,8,9,14,16,18,21,28,30,32,35,38,39,40,41,42,47,48];
-                      const filled = corners.includes(i) || (i % 3 === 0 && i % 7 !== 6) || Math.random() > 0.6;
-                      return <div key={i} className={`rounded-[1px] ${filled ? 'bg-black' : 'bg-transparent'}`} />;
+            {/* QR */}
+            <div className="bg-[#080f1e] rounded-3xl border border-white/8 overflow-hidden">
+              <div className="p-6 flex flex-col items-center border-b border-dashed border-white/10">
+                <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center shadow-2xl relative mb-4">
+                  {/* Faux QR */}
+                  <svg width="160" height="160" viewBox="0 0 21 21" className="rounded">
+                    {/* Position detection squares */}
+                    {[[0,0],[14,0],[0,14]].map(([ox, oy], i) => (
+                      <g key={i}>
+                        <rect x={ox} y={oy} width={7} height={7} fill="black" rx={0.5} />
+                        <rect x={ox+1} y={oy+1} width={5} height={5} fill="white" />
+                        <rect x={ox+2} y={oy+2} width={3} height={3} fill="black" />
+                      </g>
+                    ))}
+                    {/* Data modules */}
+                    {Array.from({ length: 21 * 21 }).map((_, idx) => {
+                      const x = idx % 21; const y = Math.floor(idx / 21);
+                      const inCorner = (x < 8 && y < 8) || (x > 13 && y < 8) || (x < 8 && y > 13);
+                      if (inCorner) return null;
+                      const on = (x + y + idx) % 3 === 0 || (x * y) % 4 === 0;
+                      return on ? <rect key={idx} x={x} y={y} width={1} height={1} fill="black" /> : null;
                     })}
-                  </div>
-                  <div className="absolute -top-3 -right-3 bg-emerald-500 px-2 py-0.5 rounded-full text-[9px] font-bold text-white border-2 border-[#0A1124] uppercase">Active</div>
+                  </svg>
+                  <div className="absolute -top-3 -right-3 bg-emerald-500 px-2.5 py-0.5 rounded-full text-[9px] font-black text-white border-2 border-[#080f1e] uppercase">Valid</div>
                 </div>
-                <p className="text-[10px] text-white/40 mt-3 font-bold">SCAN AT TURNSTILE</p>
+                <div className="text-[9px] text-white/35 font-bold uppercase tracking-widest">Scan at Turnstile · Gate B</div>
               </div>
-              <div className="p-5 grid grid-cols-3 divide-x divide-white/5">
-                {[
-                  { label: 'Gate', value: 'B', sub: 'North Entry' },
-                  { label: 'Valid Until', value: '04:30', sub: 'PM IST' },
-                  { label: 'Block', value: 'D4', sub: 'Upper Tier' },
-                ].map(({ label, value, sub }) => (
-                  <div key={label} className="text-center px-3">
-                    <div className="text-[9px] text-white/30 uppercase font-bold mb-0.5">{label}</div>
-                    <div className="text-lg font-black">{value}</div>
-                    <div className="text-[9px] text-white/30">{sub}</div>
+
+              {/* Ticket details */}
+              <div className="grid grid-cols-4 divide-x divide-white/5">
+                {[['Gate', 'B'], ['Block', 'D4'], ['Row', '12'], ['Seat', '34']].map(([l, v]) => (
+                  <div key={l} className="text-center py-4 px-2">
+                    <div className="text-[8px] text-white/25 uppercase font-bold mb-0.5">{l}</div>
+                    <div className="text-base font-black">{v}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Wait time widget */}
-            <div className="bg-[#0A1124] rounded-2xl border border-white/8 p-4">
-              <div className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-3">Real-time Gate Wait</div>
+            {/* Match details */}
+            <div className="bg-[#080f1e] rounded-2xl border border-white/8 p-4 space-y-2.5">
+              {[
+                { label: 'Match', value: 'HYD Sunrisers vs BLR RCB' },
+                { label: 'Venue', value: 'Rajiv Gandhi Intl. Cricket Stadium' },
+                { label: 'Date', value: 'Sunday, 20 Apr 2025 · 7:30 PM IST' },
+                { label: 'Ticket ID', value: 'SRH-IPL-2025-D4-12-34' },
+                { label: 'Holder', value: 'Abhiram Ravula' },
+                { label: 'Valid Until', value: '09:30 PM IST (end of match)' },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between items-start gap-3">
+                  <span className="text-[9px] text-white/30 uppercase font-bold tracking-wider shrink-0">{label}</span>
+                  <span className="text-[10px] font-bold text-right">{value}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Gate wait times */}
+            <div className="bg-[#080f1e] rounded-2xl border border-white/8 p-4">
+              <div className="text-[9px] font-black uppercase tracking-widest text-white/25 mb-3">Live Gate Wait Times</div>
               <div className="space-y-2.5">
                 {[
-                  { gate: 'Gate A', wait: '1m 20s', pct: 20, status: 'Low' },
-                  { gate: 'Gate B ★ Yours', wait: '4m 00s', pct: 55, status: 'Medium' },
-                  { gate: 'Gate C', wait: '8m 45s', pct: 85, status: 'Busy' },
-                  { gate: 'Gate D', wait: '2m 10s', pct: 30, status: 'Low' },
-                ].map(({ gate, wait, pct, status }) => (
+                  { gate: 'Gate A', wait: '1m 20s', pct: 18, yours: false },
+                  { gate: 'Gate B', wait: '4m 00s', pct: 58, yours: true },
+                  { gate: 'Gate C', wait: '9m 15s', pct: 91, yours: false },
+                  { gate: 'Gate D', wait: '2m 30s', pct: 30, yours: false },
+                ].map(({ gate, wait, pct, yours }) => (
                   <div key={gate}>
                     <div className="flex justify-between text-[10px] mb-1">
-                      <span className="font-bold">{gate}</span>
-                      <span className={`font-bold ${pct > 70 ? 'text-red-400' : pct > 40 ? 'text-amber-400' : 'text-emerald-400'}`}>{wait}</span>
+                      <span className="font-bold">{gate}{yours && <span className="ml-1.5 text-blue-400 text-[8px] font-black">★ Yours</span>}</span>
+                      <span className={`font-black ${pct > 75 ? 'text-red-400' : pct > 45 ? 'text-amber-400' : 'text-emerald-400'}`}>{wait}</span>
                     </div>
-                    <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-1000 ${pct > 70 ? 'bg-red-500' : pct > 40 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                        className={`h-full rounded-full transition-all duration-700 ${pct > 75 ? 'bg-red-500' : pct > 45 ? 'bg-amber-500' : 'bg-emerald-500'}`}
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -263,37 +462,45 @@ export default function FanExperience() {
                 ))}
               </div>
             </div>
-          </section>
+          </div>
         )}
       </main>
 
-      {/* Cart flash toast */}
-      {showCartFlash && (
-        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 bg-blue-600 px-5 py-2.5 rounded-full text-xs font-bold shadow-2xl shadow-blue-900/40 z-40 animate-bounce">
-          ✓ Added to cart
+      {/* ── CART STICKY BAR (shows when items in cart on order tab) ── */}
+      {cartCount > 0 && tab === 'order' && (
+        <div className="fixed bottom-[88px] left-1/2 -translate-x-1/2 w-[calc(100%-2.5rem)] max-w-[420px] z-40">
+          <button className="w-full bg-blue-600 hover:bg-blue-500 transition-colors rounded-2xl p-4 flex items-center justify-between shadow-2xl shadow-blue-900/50">
+            <div className="flex items-center gap-2">
+              <span className="bg-white/20 px-2 py-0.5 rounded-lg text-xs font-black">{cartCount}</span>
+              <span className="text-sm font-black">View Order</span>
+            </div>
+            <span className="text-sm font-black">₹{cartTotal} →</span>
+          </button>
         </div>
       )}
 
       {/* ── TAB BAR ── */}
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[88%] max-w-[400px] h-16 bg-[#0D1830]/95 backdrop-blur-2xl rounded-full border border-white/10 px-6 flex justify-around items-center shadow-2xl z-30">
-        <TabBtn icon="🗺️" label="Map" active={activeTab === 'map'} onClick={() => setActiveTab('map')} />
-        <TabBtn icon="🍔" label="Order" active={activeTab === 'food'} onClick={() => setActiveTab('food')} badge={cartItems.length > 0 ? String(cartItems.length) : undefined} />
-        <TabBtn icon="🎟️" label="Queue" active={activeTab === 'queue'} onClick={() => setActiveTab('queue')} badge={activeTab !== 'queue' ? '1' : undefined} />
+      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-[#07101e]/96 backdrop-blur-2xl border-t border-white/8 px-6 py-3 flex justify-around items-center z-30 pb-safe">
+        {([
+          { id: 'live', icon: '🏏', label: 'Live' },
+          { id: 'map', icon: '🗺️', label: 'My Seat' },
+          { id: 'order', icon: '🍔', label: 'Order', badge: cartCount > 0 ? String(cartCount) : undefined },
+          { id: 'ticket', icon: '🎟️', label: 'Ticket' },
+        ] as { id: Tab; icon: string; label: string; badge?: string }[]).map(({ id, icon, label, badge }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`flex flex-col items-center gap-1 relative transition-all duration-200 min-w-[52px] ${tab === id ? 'opacity-100 scale-105' : 'opacity-35 hover:opacity-65'}`}
+          >
+            {tab === id && <span className="absolute -top-3 w-8 h-0.5 bg-blue-500 rounded-full" />}
+            <span className="text-xl leading-none">{icon}</span>
+            <span className="text-[8px] font-black uppercase tracking-widest">{label}</span>
+            {badge && (
+              <span className="absolute -top-1 right-0 bg-blue-500 text-[8px] min-w-[14px] h-3.5 px-0.5 rounded-full flex items-center justify-center font-black">{badge}</span>
+            )}
+          </button>
+        ))}
       </nav>
     </div>
   );
 }
-
-const TabBtn = ({ icon, label, active, onClick, badge }: { icon: string; label: string; active: boolean; onClick: () => void; badge?: string }) => (
-  <button
-    onClick={onClick}
-    className={`flex flex-col items-center gap-1 relative transition-all duration-200 ${active ? 'scale-110' : 'opacity-40 hover:opacity-80'}`}
-  >
-    <span className="text-xl">{icon}</span>
-    <span className="text-[8px] font-black uppercase tracking-widest">{label}</span>
-    {badge && (
-      <span className="absolute -top-1 -right-2 bg-blue-500 text-[8px] min-w-[14px] h-3.5 px-0.5 rounded-full flex items-center justify-center font-bold">{badge}</span>
-    )}
-    {active && <span className="absolute -bottom-2 w-1 h-1 bg-white rounded-full" />}
-  </button>
-);
