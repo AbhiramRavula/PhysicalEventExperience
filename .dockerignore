@@ -1,0 +1,14 @@
+node_modules
+.next
+dist
+.git
+.gitignore
+README.md
+*.db
+*.docx
+temp_prd.txt
+.turbo
+out
+build
+scripts
+tests
