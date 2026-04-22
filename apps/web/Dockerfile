@@ -8,6 +8,7 @@ COPY package.json package-lock.json ./
 COPY apps/web/package.json ./apps/web/
 RUN npm install
 
+
 # --- Builder ---
 FROM base AS builder
 WORKDIR /app
